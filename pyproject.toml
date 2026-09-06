@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "allskycal"
+version = "0.1.0"
+description = "Zero-shot geometric calibration of all-sky (fisheye) cameras from star positions"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Lumaria project (Allande Stars)"}]
+keywords = ["all-sky camera", "fisheye", "astrometry", "calibration", "light pollution"]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "astropy>=5.2",
+  "photutils>=1.6",
+  "opencv-python-headless>=4.6",
+  "Pillow>=9",
+  "matplotlib>=3.6",
+]
+
+[project.optional-dependencies]
+web = ["fastapi>=0.100", "uvicorn>=0.22", "python-multipart>=0.0.6"]
+dev = ["pytest", "jupyter", "nbconvert"]
+
+[project.scripts]
+allskycal = "allskycal.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["allskycal*"]
+
+[tool.setuptools.package-data]
+allskycal = ["data/*.json", "web/static/*"]

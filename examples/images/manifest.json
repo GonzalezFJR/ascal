@@ -1,0 +1,10 @@
+{
+  "site": {"name": "ZRO, Cereceda (Allande, Asturias, Spain)", "lat": 43.259147, "lon": -6.60345, "elev_m": 650},
+  "camera": "Raspberry Pi HQ Camera (IMX477, 4056x3040, 1.55 um) + EDATEC ED-LENS-M12-230155-12 (1.55 mm, F2.0, 195 deg)",
+  "timezone_of_filenames": "Europe/Madrid",
+  "frames": [
+    {"file": "2026_07_08_01_01_06.jpg", "start_local": "2026-07-08T01:01:06+02:00", "exposure_s": 20, "iso": 1600, "moon": "below horizon"},
+    {"file": "2026_08_09_03_00_46.jpg", "start_local": "2026-08-09T03:00:46+02:00", "exposure_s": 20, "iso": 1600, "moon": "below horizon"},
+    {"file": "2026_09_04_01_00_16.jpg", "start_local": "2026-09-04T01:00:16+02:00", "exposure_s": 20, "iso": 1600, "moon": "altitude 9 deg, 54% illuminated"}
+  ]
+}

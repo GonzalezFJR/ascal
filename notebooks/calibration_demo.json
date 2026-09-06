@@ -1,0 +1,43 @@
+{
+ "model": "kannala-brandt + rigid rotation",
+ "cx": 1948.535054412666,
+ "cy": 1467.8328490887823,
+ "f": 1005.3231434071115,
+ "psi": 161.05691498944626,
+ "tau_x": -1.8271932795270553,
+ "tau_y": -3.278662479443702,
+ "k": [
+  -0.021064281268616085,
+  -0.005196482213800044
+ ],
+ "p": null,
+ "width": 4056,
+ "height": 3040,
+ "derived": {
+  "focal_length_px_per_deg": 17.54619889895322,
+  "total_tilt_deg": 3.752947874032576,
+  "zenith_pixel": [
+   1883.7335666662902,
+   1456.1623240972558
+  ],
+  "horizon_radius_px": 1447.1236105190576,
+  "plate_scale_axis_arcmin_per_px": 3.419544047433516,
+  "plate_scale_horizon_arcmin_per_px": 4.985519596811356
+ },
+ "meta": {
+  "fit_cost": 317.5241403817962,
+  "fit_nfev": 2,
+  "fit_status": 3,
+  "n_pairs": 547,
+  "calibration": "allskycal zero-shot",
+  "frames": [
+   "2026_08_09_03_00_46.jpg"
+  ],
+  "site": {
+   "lat": 43.259147,
+   "lon": -6.60345,
+   "elev": 650
+  },
+  "median_px": 0.533
+ }
+}
