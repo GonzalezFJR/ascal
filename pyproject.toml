@@ -9,7 +9,7 @@ description = "Zero-shot geometric calibration of all-sky (fisheye) cameras from
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-authors = [{name = "Lumaria project (Allande Stars)"}]
+authors = [{name = "J. R. González Fernández", email = "juanrodrigo.gonzalezfernandez@unir.net"}]
 keywords = ["all-sky camera", "fisheye", "astrometry", "calibration", "light pollution"]
 dependencies = [
   "numpy>=1.24",
@@ -33,3 +33,6 @@ include = ["allskycal*"]
 
 [tool.setuptools.package-data]
 allskycal = ["data/*.json", "web/static/*"]
+
+[project.urls]
+Repository = "https://github.com/GonzalezFJR/allsky_calibration"

@@ -39,8 +39,8 @@ can be fitted when the residual map shows its signature.
 ## Installation
 
 ```bash
-git clone https://github.com/Lumaria-project/allskycal.git
-cd allskycal
+git clone https://github.com/GonzalezFJR/allsky_calibration.git
+cd allsky_calibration
 pip install .            # core: numpy, scipy, astropy, photutils, opencv-python-headless, Pillow, matplotlib
 pip install ".[web]"     # + fastapi, uvicorn, python-multipart for the web demo
 ```
@@ -175,8 +175,9 @@ Run the tests with `pytest` (the end-to-end test takes about 30 s).
 If you use this software, please cite the paper (reference to be completed on publication) and this
 repository:
 
-> González X. et al. Geometric calibration of the low-cost all-sky cameras of the Lumaria project:
-> sub-pixel accuracy without levelling. 2026 (submitted).
+> González Fernández JR, Hermosa Muñoz L, Fernández Alonso M, González Cuesta L. Geometric calibration
+> of the low-cost all-sky cameras of the Lumaria project: sub-pixel accuracy from a single image without
+> levelling. 2026 (submitted to PLOS ONE). Code: https://github.com/GonzalezFJR/allsky_calibration
 
 The camera model follows Kannala & Brandt (2006, IEEE TPAMI 28:1335) for the radial function,
 Ceplecha (1987) and Borovička et al. (1995) for the rotation formulation of all-sky astrometry, and
