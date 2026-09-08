@@ -1,5 +1,5 @@
-"""allskycal: geometric calibration of all-sky (fisheye) cameras from star positions."""
-__version__ = "0.1.0"
+"""ascal: geometric calibration of all-sky (fisheye) cameras from star positions."""
+__version__ = "0.2.0"
 
 from .bootstrap import CalibrationResult, Site, calibrate, evaluate  # noqa: F401
 from .catalog import load_catalog, sky_stars  # noqa: F401

@@ -2,7 +2,7 @@ from datetime import datetime
 
 import numpy as np
 
-from allskycal.catalog import julian_date, load_catalog, precess_j2000, sidereal_time_deg, sky_stars
+from ascal.catalog import julian_date, load_catalog, precess_j2000, sidereal_time_deg, sky_stars
 
 
 def test_julian_date_j2000():

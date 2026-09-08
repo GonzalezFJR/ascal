@@ -1,9 +1,9 @@
 """Command-line interface.
 
-    allskycal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--decentering] [--out calib.json] [--report DIR]
-    allskycal check calib.json IMG [IMG ...] --lat LAT --lon LON [--tz ZONE] [--report DIR]
-    allskycal project calib.json --alt A --az Z | --x X --y Y
-    allskycal web [--host 0.0.0.0] [--port 8000]
+    ascal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--decentering] [--out calib.json] [--report DIR]
+    ascal check calib.json IMG [IMG ...] --lat LAT --lon LON [--tz ZONE] [--report DIR]
+    ascal project calib.json --alt A --az Z | --x X --y Y
+    ascal web [--host 0.0.0.0] [--port 8000]
 """
 from __future__ import annotations
 
@@ -122,13 +122,13 @@ def cmd_project(args) -> int:
 
 def cmd_web(args) -> int:
     import uvicorn
-    uvicorn.run("allskycal.web.app:app", host=args.host, port=args.port, reload=False)
+    uvicorn.run("ascal.web.app:app", host=args.host, port=args.port, reload=False)
     return 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(prog="allskycal", description="Geometric calibration of all-sky cameras from star positions.")
-    ap.add_argument("--version", action="version", version=f"allskycal {__version__}")
+    ap = argparse.ArgumentParser(prog="ascal", description="Geometric calibration of all-sky cameras from star positions.")
+    ap.add_argument("--version", action="version", version=f"ascal {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def site_args(p):

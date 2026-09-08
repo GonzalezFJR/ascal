@@ -29,7 +29,7 @@
   "fit_nfev": 2,
   "fit_status": 3,
   "n_pairs": 547,
-  "calibration": "allskycal zero-shot",
+  "calibration": "ascal zero-shot",
   "frames": [
    "2026_08_09_03_00_46.jpg"
   ],

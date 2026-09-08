@@ -1,6 +1,6 @@
-# allskycal — zero-shot geometric calibration of all-sky cameras
+# ascal — zero-shot geometric calibration of all-sky cameras
 
-`allskycal` calibrates the geometry of a fisheye all-sky camera from **one night image**, with no
+`ascal` calibrates the geometry of a fisheye all-sky camera from **one night image**, with no
 prior calibration, no sky mask and no manual identification of stars. You give it the image, the
 site (latitude, longitude) and the time of the exposure; it returns the mapping between pixels and
 horizontal coordinates (altitude, azimuth), the residuals against the Hipparcos catalogue and a set
@@ -33,13 +33,13 @@ it has never seen, with 76–88 % of the stars within one pixel.
 The camera model (see [docs/model.md](docs/model.md)) chains a **rigid 3-D rotation** of the optical
 axis (so the camera need not be levelled), the **Kannala–Brandt** odd-polynomial radial function
 (`r = f(θ + k3 θ³ + k5 θ⁵)`, with `f` the focal length in px/rad), the image rotation and the optical
-centre: eight parameters. An optional two-parameter **Brown–Conrady decentering** term (model B)
+centre: eight parameters. An optional two-parameter **Brown–Conrady decentering** term (the extended model of the paper)
 can be fitted when the residual map shows its signature.
 
 ## Installation
 
 ```bash
-git clone https://github.com/GonzalezFJR/allsky_calibration.git
+git clone https://github.com/GonzalezFJR/ascal.git
 cd allsky_calibration
 pip install .            # core: numpy, scipy, astropy, photutils, opencv-python-headless, Pillow, matplotlib
 pip install ".[web]"     # + fastapi, uvicorn, python-multipart for the web demo
@@ -55,17 +55,17 @@ time, `Europe/Madrid`).
 
 ```bash
 # calibrate from one frame, write the model and a report with figures
-allskycal calibrate examples/images/2026_08_09_03_00_46.jpg \
+ascal calibrate examples/images/2026_08_09_03_00_46.jpg \
     --lat 43.259147 --lon -6.60345 --elev 650 --tz Europe/Madrid \
     --out calib.json --report report/
 
 # score that calibration on another night without refitting
-allskycal check calib.json examples/images/2026_07_08_01_01_06.jpg \
+ascal check calib.json examples/images/2026_07_08_01_01_06.jpg \
     --lat 43.259147 --lon -6.60345 --tz Europe/Madrid
 
 # convert coordinates
-allskycal project calib.json --alt 45 --az 180
-allskycal project calib.json --x 2028 --y 1520
+ascal project calib.json --alt 45 --az 180
+ascal project calib.json --x 2028 --y 1520
 ```
 
 Typical output for one frame (desktop CPU, 11 s including detection):
@@ -80,7 +80,7 @@ total tilt 3.75 deg, zenith at pixel (1884, 1456), horizon radius 1447 px, 3.42 
 547 pairs, median 0.53 px, rms 1.08 px, p90 1.16 px, 85% within 1 px
 ```
 
-**Time of the exposure.** The mid-exposure instant is what matters. `allskycal` uses, in this order,
+**Time of the exposure.** The mid-exposure instant is what matters. `ascal` uses, in this order,
 `--time` (ISO 8601; aware, or naive in `--tz`), the EXIF `DateTimeOriginal`, or a
 `YYYY_MM_DD_HH_MM_SS` timestamp in the file name, and adds half the exposure (EXIF `ExposureTime` or
 `--exposure`). An error of 10 s in time is a 0.04° shift of the sky (≈ 0.7 px on this camera).
@@ -94,7 +94,7 @@ instead of > 1 GB for a 12-Mpx frame). A Raspberry Pi 4 calibrates a frame in ab
 ## Python API
 
 ```python
-from allskycal import Site, calibrate, evaluate, load_frame, CameraModel, plots
+from ascal import Site, calibrate, evaluate, load_frame, CameraModel, plots
 
 site = Site(lat=43.259147, lon=-6.60345, elev=650)
 frame = load_frame("examples/images/2026_08_09_03_00_46.jpg", tz="Europe/Madrid", keep_image=True)
@@ -130,7 +130,7 @@ python notebooks/build_demo.py && jupyter nbconvert --to notebook --execute --in
 
 ```bash
 pip install ".[web]"
-allskycal web            # http://127.0.0.1:8000
+ascal web            # http://127.0.0.1:8000
 ```
 
 Drop an image, check the site and time (pre-filled from EXIF or the file name when possible), press
@@ -158,7 +158,7 @@ calibration JSON. The computation runs in the server process, one job at a time.
 ## Repository layout
 
 ```
-allskycal/            package: model.py (camera model, fit), catalog.py (Hipparcos, astrometry),
+ascal/            package: model.py (camera model, fit), catalog.py (Hipparcos, astrometry),
                       detect.py (frames, sky disc, DAOStarFinder), match.py (association, zero point),
                       bootstrap.py (blind pose search, progressive refinement, evaluation),
                       plots.py, cli.py, web/ (FastAPI app + static page), data/hipparcos_mag65.json
@@ -177,7 +177,7 @@ repository:
 
 > González Fernández JR, Hermosa Muñoz L, Fernández Alonso M, González Cuesta L. Geometric calibration
 > of the low-cost all-sky cameras of the Lumaria project: sub-pixel accuracy from a single image without
-> levelling. 2026 (submitted to PLOS ONE). Code: https://github.com/GonzalezFJR/allsky_calibration
+> levelling. 2026 (submitted to PLOS ONE). Code: https://github.com/GonzalezFJR/ascal
 
 The camera model follows Kannala & Brandt (2006, IEEE TPAMI 28:1335) for the radial function,
 Ceplecha (1987) and Borovička et al. (1995) for the rotation formulation of all-sky astrometry, and

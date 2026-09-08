@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "allskycal"
-version = "0.1.0"
+name = "ascal"
+version = "0.2.0"
 description = "Zero-shot geometric calibration of all-sky (fisheye) cameras from star positions"
 readme = "README.md"
 license = {text = "MIT"}
@@ -26,13 +26,13 @@ web = ["fastapi>=0.100", "uvicorn>=0.22", "python-multipart>=0.0.6"]
 dev = ["pytest", "jupyter", "nbconvert"]
 
 [project.scripts]
-allskycal = "allskycal.cli:main"
+ascal = "ascal.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["allskycal*"]
+include = ["ascal*"]
 
 [tool.setuptools.package-data]
-allskycal = ["data/*.json", "web/static/*"]
+ascal = ["data/*.json", "web/static/*"]
 
 [project.urls]
-Repository = "https://github.com/GonzalezFJR/allsky_calibration"
+Repository = "https://github.com/GonzalezFJR/ascal"

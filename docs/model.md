@@ -1,6 +1,6 @@
 # The camera model
 
-`allskycal` maps a direction on the sky, given as altitude and azimuth `(alt, az)` in degrees
+`ascal` maps a direction on the sky, given as altitude and azimuth `(alt, az)` in degrees
 (azimuth from north through east), to a pixel `(x, y)` (x to the right, y downward, origin at the
 top-left corner, pixel centres at integer coordinates) in four steps.
 
@@ -96,7 +96,7 @@ soft-L1 loss, (ii) iterative clipping per altitude band (median + 3.5 robust sig
 
 ## Zero-shot pipeline
 
-See the docstring of `allskycal/bootstrap.py`: sky disc → blind search of `(psi, zenith shift,
+See the docstring of `ascal/bootstrap.py`: sky disc → blind search of `(psi, zenith shift,
 focal scale)` against the bright stars → progressive association (mag ≤ 3.5/30 px → 4.5/25 px →
 5.5/12 px → 7 px, unique and mutual pairs) → robust fit. A single clear frame is enough.
 

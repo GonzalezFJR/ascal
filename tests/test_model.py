@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from allskycal.model import CameraModel, fit, residuals, rotation_matrix
+from ascal.model import CameraModel, fit, residuals, rotation_matrix
 
 
 def make_model(dec=False):

@@ -219,7 +219,7 @@ def calibrate(frames: Sequence[Frame], site: Site, *, decentering: bool = False,
     result = refine(model, frames, site, cat, decentering=decentering, verbose=verbose)
     result.info.update(info)
     result.info["elapsed_s"] = round(time.perf_counter() - t_start, 1)
-    result.model.meta.update({"calibration": "allskycal zero-shot", "frames": info["frames"], "site": vars(site),
+    result.model.meta.update({"calibration": "ascal zero-shot", "frames": info["frames"], "site": vars(site),
                               "n_pairs": int(result.inliers.sum()), "median_px": round(float(np.median(result.residual_px[result.inliers])), 3)})
     return result
 

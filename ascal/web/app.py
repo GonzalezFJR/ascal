@@ -1,6 +1,6 @@
 """Drag-and-drop web demo: upload an all-sky frame, get a calibration and diagnostic figures.
 
-Run with ``allskycal web`` or ``uvicorn allskycal.web.app:app``.  Everything runs in the server
+Run with ``ascal web`` or ``uvicorn ascal.web.app:app``.  Everything runs in the server
 process (detection + fit take 10-60 s depending on the machine); one job at a time.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from ..detect import load_frame, read_exif
 from .. import plots
 
 STATIC = Path(__file__).resolve().parent / "static"
-app = FastAPI(title="allskycal", version=__version__)
+app = FastAPI(title="ascal", version=__version__)
 _lock = threading.Lock()
 
 
@@ -61,7 +61,7 @@ async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), l
     if not _lock.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="A calibration is already running; try again in a minute.")
     suffix = Path(image.filename or "img.jpg").suffix or ".jpg"
-    tmpdir = Path(tempfile.mkdtemp(prefix="allskycal_"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="ascal_"))
     path = tmpdir / (Path(image.filename or "frame").stem + suffix)
     try:
         path.write_bytes(await image.read())

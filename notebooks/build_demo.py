@@ -8,7 +8,7 @@ cells = []
 md = lambda s: cells.append(nbf.v4.new_markdown_cell(s))
 code = lambda s: cells.append(nbf.v4.new_code_cell(s))
 
-md("""# allskycal — zero-shot calibration of an all-sky camera from one image
+md("""# ascal — zero-shot calibration of an all-sky camera from one image
 
 This notebook walks through the calibration of a fisheye all-sky camera from a **single night frame**,
 with no prior calibration, no sky mask and no manual star identification. You only need:
@@ -32,15 +32,15 @@ sys.path.insert(0, str(Path.cwd().parent))      # run from notebooks/ inside the
 import numpy as np
 from IPython.display import Image, display
 
-import allskycal
-from allskycal import Site, calibrate, evaluate, load_frame
-from allskycal import plots
+import ascal
+from ascal import Site, calibrate, evaluate, load_frame
+from ascal import plots
 
 IMAGES = Path.cwd().parent / "examples" / "images"
 IMAGE = IMAGES / "2026_08_09_03_00_46.jpg"      # <- your image here
 SITE = Site(lat=43.259147, lon=-6.60345, elev=650)   # <- your site here (degrees north / east)
 TZ = "Europe/Madrid"                            # time zone of the timestamp in the file name (EXIF DateTimeOriginal is used when present)
-print("allskycal", allskycal.__version__)""")
+print("ascal", ascal.__version__)""")
 
 md("""## 1. Load the frame and detect stars
 
@@ -146,9 +146,9 @@ md("""## Command line and web demo
 The same pipeline is available from the shell and from a drag-and-drop web page:
 
 ```bash
-allskycal calibrate examples/images/2026_08_09_03_00_46.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid --out calib.json --report report/
-allskycal check calib.json examples/images/2026_07_08_01_01_06.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid
-allskycal web          # then open http://127.0.0.1:8000
+ascal calibrate examples/images/2026_08_09_03_00_46.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid --out calib.json --report report/
+ascal check calib.json examples/images/2026_07_08_01_01_06.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid
+ascal web          # then open http://127.0.0.1:8000
 ```""")
 
 nb["cells"] = cells

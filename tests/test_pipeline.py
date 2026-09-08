@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from allskycal import Site, calibrate, evaluate, load_frame
+from ascal import Site, calibrate, evaluate, load_frame
 
 IMAGES = Path(__file__).resolve().parents[1] / "examples" / "images"
 SITE = Site(43.259147, -6.60345, 650)

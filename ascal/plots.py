@@ -84,7 +84,7 @@ def overlay(frame: Frame, model: CameraModel, site: Site, *, max_mag: float = 4.
 def cutouts(frame: Frame, model: CameraModel, site: Site, *, n: int = 6, half: int = 40, path: Optional[Path | str] = None):
     """Cut-outs around the brightest stars at low and high altitude with detections and predictions."""
     plt = _plt()
-    gray = frame.gray if frame.gray is not None else __import__("allskycal.detect", fromlist=["read_image"]).read_image(frame.path)
+    gray = frame.gray if frame.gray is not None else __import__("ascal.detect", fromlist=["read_image"]).read_image(frame.path)
     stars = sky_stars(site.lat, site.lon, frame.utc, min_alt=8.0, max_mag=3.0, model=model)
     s = np.flatnonzero(stars.in_frame)
     low = s[(stars.alt[s] < 30)][np.argsort(stars.mag[s][stars.alt[s] < 30])][: n // 2]
