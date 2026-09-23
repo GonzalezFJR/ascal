@@ -57,7 +57,7 @@ async def exif(image: UploadFile = File(...)) -> dict:
 @app.post("/api/calibrate")
 async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), lon: float = Form(...), elev: float = Form(0.0),
                         time: Optional[str] = Form(None), tz: Optional[str] = Form(None), exposure: Optional[float] = Form(None),
-                        decentering: bool = Form(False), tiles: int = Form(1)) -> JSONResponse:
+                        decentering: bool = Form(False), tiles: int = Form(1), fwhm: Optional[str] = Form(None)) -> JSONResponse:
     if not _lock.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="A calibration is already running; try again in a minute.")
     suffix = Path(image.filename or "img.jpg").suffix or ".jpg"
@@ -66,7 +66,8 @@ async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), l
     try:
         path.write_bytes(await image.read())
         t = datetime.fromisoformat(time) if time else None
-        frame = load_frame(path, time=t, tz=tz or None, exposure_s=exposure, tiles=max(1, tiles), keep_image=True)
+        kernel = "auto" if not fwhm or fwhm.strip().lower() == "auto" else float(fwhm)
+        frame = load_frame(path, time=t, tz=tz or None, exposure_s=exposure, tiles=max(1, tiles), keep_image=True, fwhm=kernel)
         site = Site(lat, lon, elev)
         log: list = []
         import io, contextlib
@@ -78,6 +79,7 @@ async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), l
         payload = {
             "ok": True,
             "frame": {"name": path.name, "utc_mid": frame.utc.isoformat(), "exposure_s": frame.exposure_s, "n_detections": len(frame.detections),
+                      "fwhm": frame.info.get("fwhm"), "fwhm_measured": frame.info.get("fwhm_measured"),
                       "width": frame.width, "height": frame.height},
             "calibration": result.model.to_dict(),
             "summary": {k: v for k, v in summary.items() if k not in ("pose_candidates",)},

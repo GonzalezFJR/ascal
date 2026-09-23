@@ -14,6 +14,7 @@ SITE = Site(43.259147, -6.60345, 650)
 def test_zero_shot_calibration_of_one_frame():
     frame = load_frame(IMAGES / "2026_08_09_03_00_46.jpg", tz="Europe/Madrid")
     assert len(frame.detections) > 1000
+    assert frame.info["fwhm"] == 4.0                     # stars of ~2.8 px: the paper's kernel is kept
     result = calibrate([frame], SITE, verbose=False)
     s = result.summary()
     assert s["n_pairs"] > 200

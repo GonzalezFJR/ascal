@@ -96,9 +96,12 @@ soft-L1 loss, (ii) iterative clipping per altitude band (median + 3.5 robust sig
 
 ## Zero-shot pipeline
 
-See the docstring of `ascal/bootstrap.py`: sky disc → blind search of `(psi, zenith shift,
+See the docstring of `ascal/bootstrap.py`: sky disc → star detection with a DAOStarFinder kernel of
+1.3 × the measured star FWHM, at least 4 px (`ascal/detect.py`, `estimate_fwhm`) → blind search of `(psi, zenith shift,
 focal scale)` against the bright stars → progressive association (mag ≤ 3.5/30 px → 4.5/25 px →
-5.5/12 px → 7 px, unique and mutual pairs) → robust fit. A single clear frame is enough.
+5.5/12 px → 7 px, unique and mutual pairs) → robust fit. A single clear frame is enough. If the
+calibration fails with the automatic kernel, the detection is repeated with kernels 1.5, 2 and 0.75
+times wider. The kernel used is stored in `meta.detection_fwhm_px` of the calibration JSON.
 
 ## Reference positions
 

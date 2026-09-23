@@ -61,6 +61,7 @@
     </div>
     <label>Exposure start (ISO 8601; leave empty to use EXIF or the file name)<input id="time" type="text" placeholder="2026-08-09T03:00:46"></label>
     <label>Time zone of the time above / file name<input id="tz" type="text" value="Europe/Madrid" placeholder="UTC"></label>
+    <label>Star-detection kernel FWHM (px; empty = measured from the image)<input id="fwhm" type="number" step="0.5" min="1" max="30" placeholder="auto"></label>
     <label class="check"><input id="dec" type="checkbox"> fit decentering term (model B)</label>
     <label class="check"><input id="tiles" type="checkbox"> detect in 2×2 tiles (low-memory machines)</label>
     <button id="run" disabled>Calibrate</button>
@@ -104,6 +105,7 @@ $("run").addEventListener("click", async () => {
   if ($("exposure").value) fd.append("exposure", $("exposure").value);
   fd.append("decentering", $("dec").checked);
   fd.append("tiles", $("tiles").checked ? 2 : 1);
+  if ($("fwhm").value) fd.append("fwhm", $("fwhm").value);
   $("run").disabled = true;
   $("status").className = ""; $("status").textContent = "detecting stars and searching the pose… (10–60 s)";
   $("results").innerHTML = "";

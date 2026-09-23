@@ -13,6 +13,10 @@ Stages
 
 Quality gate: at least 80 pairs and a median residual below 2 px (a fit that barely passes a looser
 gate can hide a wrong pose; see the paper).
+
+When the frames were loaded with ``fwhm="auto"`` and ``keep_image=True`` and the calibration fails,
+the detection is repeated with other kernel widths (RETRY_FWHM_FACTORS times the first one) before
+giving up: a kernel much narrower than the stars loses the bright stars the pose search relies on.
 """
 from __future__ import annotations
 
@@ -24,7 +28,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from .catalog import Catalog, load_catalog, sky_stars
-from .detect import Frame
+from .detect import DEFAULT_FWHM, FWHM_MAX, Frame
 from .match import Pairs, associate, unique_mutual
 from .model import CameraModel, band_statistics, fit, residuals, robust_fit
 
@@ -190,21 +194,35 @@ def refine(model: CameraModel, frames: Sequence[Frame], site: Site, catalog: Cat
 
 # ---------------------------------------------------------------------- full pipeline
 
-def calibrate(frames: Sequence[Frame], site: Site, *, decentering: bool = False, catalog: Optional[Catalog] = None,
-              initial: Optional[CameraModel] = None, verbose: bool = True) -> CalibrationResult:
-    """Zero-shot calibration from detected frames (see module docstring).
+RETRY_FWHM_FACTORS = (1.5, 2.0, 0.75)
 
-    With ``initial`` (an approximate model, e.g. from a previous calibration) the blind pose search is
-    skipped and only the progressive refinement runs.
-    """
-    t_start = time.perf_counter()
-    cat = catalog or load_catalog()
+
+def _retry_widths(frames: Sequence[Frame]) -> List[float]:
+    """Kernel widths to try again with, or [] when the frames do not allow a new detection."""
+    if not all(fr.gray is not None and fr.info.get("fwhm_mode") == "auto" for fr in frames):
+        return []
+    f0 = float(np.median([fr.info["fwhm"] for fr in frames]))
+    out: List[float] = []
+    for k in RETRY_FWHM_FACTORS:
+        f = round(float(np.clip(f0 * k, 0.75 * DEFAULT_FWHM, FWHM_MAX)), 2)
+        if abs(f - f0) > 0.25 and all(abs(f - g) > 0.25 for g in out):
+            out.append(f)
+    return out
+
+
+def _fwhm_hint(frames: Sequence[Frame]) -> str:
+    parts = []
+    for fr in frames[:3]:
+        m = fr.info.get("fwhm_measured")
+        parts.append(f"{fr.path.name}: kernel {fr.info.get('fwhm', DEFAULT_FWHM):g} px" + (f", stars measured {m:g} px" if m is not None else ""))
+    return (" [detection: " + "; ".join(parts) + ". If the stars are wide, saturated or the image is noisy, "
+            "try another detection kernel, e.g. --fwhm 6]")
+
+
+def _calibrate_once(frames: Sequence[Frame], site: Site, cat: Catalog, *, decentering: bool, initial: Optional[CameraModel],
+                    verbose: bool) -> Tuple[CalibrationResult, Dict[str, Any]]:
     h, w = frames[0].shape
-    for fr in frames:
-        if fr.shape != (h, w):
-            raise CalibrationError("All frames must have the same size")
-    info: Dict[str, Any] = {"n_frames": len(frames), "frames": [fr.path.name for fr in frames],
-                            "n_detections": [len(fr.detections) for fr in frames]}
+    info: Dict[str, Any] = {}
     if initial is None:
         cx = float(np.median([fr.disc[0] for fr in frames]))
         cy = float(np.median([fr.disc[1] for fr in frames]))
@@ -216,11 +234,53 @@ def calibrate(frames: Sequence[Frame], site: Site, *, decentering: bool = False,
         info.update(pose_info)
     else:
         model = initial.copy(width=w, height=h)
-    result = refine(model, frames, site, cat, decentering=decentering, verbose=verbose)
+    return refine(model, frames, site, cat, decentering=decentering, verbose=verbose), info
+
+
+def calibrate(frames: Sequence[Frame], site: Site, *, decentering: bool = False, catalog: Optional[Catalog] = None,
+              initial: Optional[CameraModel] = None, verbose: bool = True) -> CalibrationResult:
+    """Zero-shot calibration from detected frames (see module docstring).
+
+    With ``initial`` (an approximate model, e.g. from a previous calibration) the blind pose search is
+    skipped and only the progressive refinement runs.  Frames loaded with ``fwhm="auto"`` and
+    ``keep_image=True`` are detected again with other kernel widths if the calibration fails (their
+    detections are replaced in place by those of the successful attempt).
+    """
+    t_start = time.perf_counter()
+    cat = catalog or load_catalog()
+    h, w = frames[0].shape
+    for fr in frames:
+        if fr.shape != (h, w):
+            raise CalibrationError("All frames must have the same size")
+    retries = _retry_widths(frames)
+    attempts: List[Dict[str, Any]] = []
+    while True:
+        fwhm = [fr.info.get("fwhm") for fr in frames]
+        try:
+            result, info = _calibrate_once(frames, site, cat, decentering=decentering, initial=initial, verbose=verbose)
+            attempts.append({"fwhm": fwhm, "ok": True})
+            break
+        except CalibrationError as exc:
+            attempts.append({"fwhm": fwhm, "ok": False, "error": str(exc)})
+            if not retries:
+                if len(attempts) > 1:
+                    tried = ", ".join(f"{a['fwhm'][0]:g}" for a in attempts)
+                    raise CalibrationError(f"{exc} (detection kernels tried: {tried} px)") from None
+                raise CalibrationError(str(exc) + _fwhm_hint(frames)) from None
+            f = retries.pop(0)
+            _log(verbose, f"  calibration failed with kernel FWHM {fwhm[0]:g} px ({exc}); detecting again with {f:g} px")
+            for fr in frames:
+                fr.redetect(f)
+    info.update({"n_frames": len(frames), "frames": [fr.path.name for fr in frames],
+                 "n_detections": [len(fr.detections) for fr in frames], "fwhm": [fr.info.get("fwhm") for fr in frames],
+                 "fwhm_measured": [fr.info.get("fwhm_measured") for fr in frames]})
+    if len(attempts) > 1:
+        info["attempts"] = attempts
     result.info.update(info)
     result.info["elapsed_s"] = round(time.perf_counter() - t_start, 1)
     result.model.meta.update({"calibration": "ascal zero-shot", "frames": info["frames"], "site": vars(site),
-                              "n_pairs": int(result.inliers.sum()), "median_px": round(float(np.median(result.residual_px[result.inliers])), 3)})
+                              "n_pairs": int(result.inliers.sum()), "median_px": round(float(np.median(result.residual_px[result.inliers])), 3),
+                              "detection_fwhm_px": info["fwhm"]})
     return result
 
 

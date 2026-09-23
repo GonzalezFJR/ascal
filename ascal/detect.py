@@ -1,14 +1,22 @@
 """Image loading, sky-disc detection and star detection (DAOStarFinder)."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
 import numpy as np
+
+# Detection kernel.  ``fwhm="auto"`` measures the star FWHM and sets the DAOStarFinder kernel to
+# FWHM_FACTOR times it, never below DEFAULT_FWHM (the value of the paper, right for the ZRO camera,
+# whose stars measure 2.8 px) nor above FWHM_MAX.
+DEFAULT_FWHM = 4.0
+FWHM_FACTOR = 1.3
+FWHM_MAX = 12.0
 
 FILENAME_TIME = re.compile(r"(\d{4})[-_](\d{2})[-_](\d{2})[-_T](\d{2})[-_](\d{2})[-_](\d{2})")
 
@@ -173,6 +181,55 @@ def detect_stars(gray: np.ndarray, *, mask: Optional[np.ndarray] = None, fwhm: f
                       np.asarray(table["peak"], float), background, noise)
 
 
+def estimate_fwhm(gray: np.ndarray, disc: Tuple[float, float, float], *, n_stars: int = 200,
+                  half: int = 8) -> Tuple[float, int]:
+    """Median FWHM (pixels) of unsaturated stars, from 2-D Gaussian fits in the centre of the sky disc.
+
+    A first DAOStarFinder pass (6 px kernel, 5 sigma, no shape cuts) runs on the central square of the
+    disc (side 1.2 R); the brightest detections whose cut-out has no pixel within 3 % of the image
+    maximum are fitted with a circular Gaussian plus constant.  Returns (FWHM, number of stars fitted);
+    (nan, 0) when nothing could be fitted.
+    """
+    from scipy.optimize import curve_fit
+
+    cx, cy, r = disc
+    s = int(0.6 * r)
+    x0, y0 = max(0, int(cx) - s), max(0, int(cy) - s)
+    sub = gray[y0:int(cy) + s, x0:int(cx) + s]
+    mask = disc_mask(sub.shape, cx - x0, cy - y0, r, margin=0.02 * r)
+    det = detect_stars(sub, mask=mask, fwhm=6.0, threshold_sigma=5.0, sharpness=(0.0, 2.0), roundness=(-2.0, 2.0),
+                       box_size=min(128, max(16, min(sub.shape) // 4)))
+    saturation = 0.97 * float(gray.max())
+    yy, xx = np.mgrid[-half:half + 1, -half:half + 1].astype(float)
+
+    def gauss(c, a, xc, yc, sigma, b):
+        return a * np.exp(-((c[0] - xc) ** 2 + (c[1] - yc) ** 2) / (2 * sigma * sigma)) + b
+
+    fwhm = []
+    for i in det.order:
+        xi, yi = int(round(det.x[i])), int(round(det.y[i]))
+        c = sub[yi - half:yi + half + 1, xi - half:xi + half + 1]
+        if c.shape != xx.shape or c.max() >= saturation:
+            continue
+        b0 = float(np.median(np.concatenate([c[0], c[-1], c[:, 0], c[:, -1]])))
+        try:
+            p, _ = curve_fit(gauss, (xx.ravel(), yy.ravel()), c.ravel().astype(float), p0=[c.max() - b0, 0.0, 0.0, 1.5, b0], maxfev=400)
+        except Exception:
+            continue
+        if p[0] > 0 and 0.4 < abs(p[3]) < half / 2 and math.hypot(p[1], p[2]) < 2:
+            fwhm.append(2.3548 * abs(p[3]))
+        if len(fwhm) >= n_stars:
+            break
+    return (float(np.median(fwhm)), len(fwhm)) if fwhm else (float("nan"), 0)
+
+
+def detection_fwhm(measured: float) -> float:
+    """DAOStarFinder kernel FWHM for stars of the measured FWHM (see DEFAULT_FWHM)."""
+    if not np.isfinite(measured):
+        return DEFAULT_FWHM
+    return round(float(np.clip(FWHM_FACTOR * measured, DEFAULT_FWHM, FWHM_MAX)), 2)
+
+
 def _detect_tiled(gray: np.ndarray, *, mask, tiles: int, overlap: int, **kwargs) -> Detections:
     h, w = gray.shape
     xs = np.linspace(0, w, tiles + 1).astype(int)
@@ -208,6 +265,7 @@ class Frame:
     disc: Tuple[float, float, float]
     gray: Optional[np.ndarray] = None
     info: Dict[str, Any] = field(default_factory=dict)
+    mask: Optional[np.ndarray] = None          # custom detection mask, when one was given
 
     @property
     def width(self) -> int:
@@ -217,13 +275,25 @@ class Frame:
     def height(self) -> int:
         return self.shape[0]
 
+    def redetect(self, fwhm: float) -> None:
+        """Run the star detection again with another kernel FWHM (needs the image: ``keep_image=True``)."""
+        if self.gray is None:
+            raise ValueError("redetect needs the image (load the frame with keep_image=True)")
+        kw = dict(self.info.get("detect_kwargs", {}), fwhm=float(fwhm))
+        mask = self.mask if self.mask is not None else disc_mask(self.gray.shape, *self.disc, margin=0.02 * self.disc[2])
+        self.detections = detect_stars(self.gray, mask=mask, **kw)
+        self.info.update(fwhm=float(fwhm), n_detections=len(self.detections), detect_kwargs=kw)
+
 
 def load_frame(path: Path | str, *, time: Optional[datetime] = None, tz: Optional[str] = None, exposure_s: Optional[float] = None,
-               tiles: int = 1, keep_image: bool = False, mask: Optional[np.ndarray] = None, **detect_kwargs: Any) -> Frame:
+               tiles: int = 1, keep_image: bool = False, mask: Optional[np.ndarray] = None,
+               fwhm: Union[float, str] = "auto", **detect_kwargs: Any) -> Frame:
     """Read, time-stamp and detect stars in one frame.
 
     Without ``mask`` the detections are restricted to the illuminated sky disc (found automatically),
-    shrunk by 2% to stay clear of its edge.
+    shrunk by 2% to stay clear of its edge.  ``fwhm`` is the DAOStarFinder kernel in pixels, or
+    ``"auto"`` to derive it from the measured star FWHM (:func:`estimate_fwhm`, :func:`detection_fwhm`).
+    Other keyword arguments go to :func:`detect_stars` (``threshold_sigma``, ``roundness``...).
     """
     import time as _time
 
@@ -231,8 +301,18 @@ def load_frame(path: Path | str, *, time: Optional[datetime] = None, tz: Optiona
     gray = read_image(path)
     utc, exposure = frame_time(path, time=time, tz=tz, exposure_s=exposure_s)
     disc = sky_disc(gray)
+    info: Dict[str, Any] = {"fwhm_mode": "auto" if fwhm == "auto" else "fixed"}
+    if fwhm == "auto":
+        measured, n = estimate_fwhm(gray, disc)
+        fwhm = detection_fwhm(measured)
+        info.update(fwhm_measured=round(measured, 2), fwhm_measured_n=n)
+    fwhm = float(fwhm)
+    custom_mask = mask
     if mask is None:
         mask = disc_mask(gray.shape, *disc, margin=0.02 * disc[2])
-    det = detect_stars(gray, mask=mask, tiles=tiles, **detect_kwargs)
-    info = {"n_detections": len(det), "detect_s": round(_time.perf_counter() - t0, 2), "exif": {k: v for k, v in read_exif(path).items() if k != "datetime"}}
-    return Frame(Path(path), utc, exposure, gray.shape, det, disc, gray if keep_image else None, info)
+    kw = dict(detect_kwargs, tiles=tiles, fwhm=fwhm)
+    det = detect_stars(gray, mask=mask, **kw)
+    info.update({"fwhm": fwhm, "detect_kwargs": kw, "n_detections": len(det), "detect_s": round(_time.perf_counter() - t0, 2),
+                 "exif": {k: v for k, v in read_exif(path).items() if k != "datetime"}})
+    return Frame(Path(path), utc, exposure, gray.shape, det, disc, gray if keep_image else None, info,
+                 custom_mask if keep_image else None)

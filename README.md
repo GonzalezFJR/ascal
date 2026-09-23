@@ -21,7 +21,8 @@ it has never seen, with 76–88 % of the stars within one pixel.
 ## What it does
 
 1. **Detects stars** with DAOStarFinder (photutils) after subtracting a 2-D median background, inside
-   the illuminated disc of the lens (found automatically).
+   the illuminated disc of the lens (found automatically). The kernel width is set from the FWHM
+   of the stars, measured on the frame itself (see *Star detection* below).
 2. **Finds the pose blindly**: image rotation, displacement of the zenith from the disc centre and
    focal scale, by counting how many catalogue stars brighter than magnitude 3 land on bright
    detections.
@@ -88,6 +89,16 @@ total tilt 3.75 deg, zenith at pixel (1884, 1456), horizon radius 1447 px, 3.42 
 **Several frames.** Pass more than one image (same camera and site) to fit them together; frames
 from different nights constrain the model better than frames of the same night.
 
+**Star detection.** By default (`--fwhm auto`) `ascal` measures the FWHM of the unsaturated stars
+with Gaussian fits in the centre of the disc and uses a DAOStarFinder kernel 1.3 times wider, never
+narrower than 4 px (the kernel of the paper, which the ZRO frames keep: their stars measure 2.8 px)
+nor wider than 12 px. If the calibration fails, the detection is repeated with kernels 1.5, 2 and
+0.75 times wider before giving up. A kernel much narrower than the stars loses the bright,
+saturated stars the pose search relies on: a DSLR frame from Dome A (stars of 4.7 px, 8-bit JPEG
+with a bright sky background) fails with a 4 px kernel and calibrates to 0.40 px with 6 px. The
+kernel can be fixed with `--fwhm 6`; `--threshold` (background sigmas, default 4) and
+`--roundness` (default 0.7) are also exposed.
+
 **Low-memory machines.** `--tiles 2` runs the detection in four overlapping tiles (about 350 MB
 instead of > 1 GB for a 12-Mpx frame). A Raspberry Pi 4 calibrates a frame in about a minute.
 
@@ -145,7 +156,8 @@ calibration JSON. The computation runs in the server process, one job at a time.
 * **Output**: `calibration.json` (see `docs/model.md`), `summary.json`, `pairs.csv`
   (star–detection pairs with residuals), figures.
 * **Quality gate**: a calibration is rejected when fewer than 80 pairs survive or the median residual
-  exceeds 2 px (clouds, twilight, wrong site or time, badly focused frame). Expect 0.5–0.8 px for a
+  exceeds 2 px (clouds, twilight, wrong site or time, badly focused frame, a detection kernel that
+  does not match the stars: the error message gives the kernel used and the measured FWHM). Expect 0.5–0.8 px for a
   good frame; a fit above 1 px deserves a look at the overlay.
 * **Lowest altitudes** (< 10°) are limited by the detections (extinction, small plate scale, the edge
   of the disc), not by the model; expect 2–4 px there.

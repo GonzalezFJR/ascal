@@ -1,6 +1,6 @@
 """Command-line interface.
 
-    ascal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--decentering] [--out calib.json] [--report DIR]
+    ascal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--fwhm auto|PX] [--decentering] [--out calib.json] [--report DIR]
     ascal check calib.json IMG [IMG ...] --lat LAT --lon LON [--tz ZONE] [--report DIR]
     ascal project calib.json --alt A --az Z | --x X --y Y
     ascal web [--host 0.0.0.0] [--port 8000]
@@ -17,7 +17,7 @@ from typing import List, Optional
 import numpy as np
 
 from . import __version__
-from .bootstrap import Site, calibrate, evaluate
+from .bootstrap import CalibrationError, Site, calibrate, evaluate
 from .detect import load_frame
 from .model import CameraModel, band_statistics
 
@@ -35,11 +35,28 @@ def _times(args, n: int) -> List[Optional[datetime]]:
     return ts if len(ts) == n else ts * n
 
 
+def _fwhm_arg(value: str):
+    if value == "auto":
+        return value
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("--fwhm must be 'auto' or a width in pixels") from None
+    if not 1.0 <= f <= 30.0:
+        raise argparse.ArgumentTypeError("--fwhm must be between 1 and 30 px")
+    return f
+
+
 def _load_frames(args, keep_image: bool = False):
     frames = []
+    # with --fwhm auto the image is kept so that calibrate() can detect again with another kernel
+    keep = keep_image or args.fwhm == "auto"
     for path, t in zip(args.images, _times(args, len(args.images))):
-        fr = load_frame(path, time=t, tz=args.tz, exposure_s=args.exposure, tiles=args.tiles, keep_image=keep_image)
-        print(f"{Path(path).name}: {len(fr.detections)} detections, mid-exposure {fr.utc:%Y-%m-%d %H:%M:%S} UTC, "
+        fr = load_frame(path, time=t, tz=args.tz, exposure_s=args.exposure, tiles=args.tiles, keep_image=keep,
+                        fwhm=args.fwhm, threshold_sigma=args.threshold, roundness=(-args.roundness, args.roundness))
+        m = fr.info.get("fwhm_measured")
+        kernel = f"kernel FWHM {fr.info['fwhm']:g} px" + (f" (stars {m:g} px)" if m is not None else "")
+        print(f"{Path(path).name}: {len(fr.detections)} detections ({kernel}), mid-exposure {fr.utc:%Y-%m-%d %H:%M:%S} UTC, "
               f"disc centre ({fr.disc[0]:.0f}, {fr.disc[1]:.0f}) radius {fr.disc[2]:.0f} px", flush=True)
         frames.append(fr)
     return frames
@@ -142,6 +159,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         p.add_argument("--tz", default=None, help="time zone of naive times / file names (e.g. Europe/Madrid); default UTC")
         p.add_argument("--exposure", type=float, default=None, help="exposure in seconds if not in EXIF")
         p.add_argument("--tiles", type=int, default=1, help="detect in N x N tiles to limit memory (e.g. 2 on a Raspberry Pi)")
+        p.add_argument("--fwhm", type=_fwhm_arg, default="auto",
+                       help="star-detection kernel FWHM in pixels, or 'auto' (default: 1.3 x the measured star FWHM, at least 4 px)")
+        p.add_argument("--threshold", type=float, default=4.0, help="detection threshold in background sigmas (default 4)")
+        p.add_argument("--roundness", type=float, default=0.7, help="maximum |roundness| of a detection (default 0.7)")
         p.add_argument("--quiet", action="store_true")
 
     p = sub.add_parser("calibrate", help="zero-shot calibration from one or more frames")
@@ -175,7 +196,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.set_defaults(func=cmd_web)
 
     args = ap.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except CalibrationError as exc:
+        print(f"\ncalibration failed: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
