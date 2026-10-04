@@ -2,6 +2,10 @@
 
 ## 1.0.0 (October 2026)
 
+- **Web app** rewritten (`ascal web`, online at https://lumaria.allandestars.com/ascal/): job queue with one process
+  per calibration, zoomable layered viewer, tables and interactive ECharts diagnostics, exports; Docker deployment
+  and reverse-tunnel recipe in `deploy/`.
+
 Qualified on 23 all-sky systems (DFN, FRIPON, MMT, ESO Paranal, Liverpool Telescope, KLCAM, Allsky network
 stations and the Lumaria camera), from 0.3 to 77 Mpx. Single-frame calibration is an incremental cascade of
 hypotheses with a time budget.

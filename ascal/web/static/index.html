@@ -3,155 +3,185 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ascal · drop an all-sky image</title>
-<style>
-  :root { --ink: #1c1c1c; --muted: #666; --line: #d8d8d8; --accent: #0072B2; --accent2: #D55E00; --bg: #fafafa; --card: #fff; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
-  header { padding: 20px 28px 8px; }
-  h1 { margin: 0; font-size: 22px; font-weight: 650; }
-  header p { margin: 4px 0 0; color: var(--muted); }
-  main { display: grid; grid-template-columns: 340px 1fr; gap: 20px; padding: 16px 28px 40px; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-  #drop { border: 2px dashed var(--accent); border-radius: 10px; padding: 26px 14px; text-align: center; color: var(--accent); cursor: pointer; transition: background .15s; }
-  #drop.over { background: #e8f1f8; }
-  #drop small { display: block; color: var(--muted); margin-top: 6px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin-top: 10px; }
-  input[type=text], input[type=number], select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; color: var(--ink); }
-  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-  button:disabled { background: #9bb8cc; cursor: wait; }
-  #status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1.4em; white-space: pre-wrap; }
-  .error { color: #b00020; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-  .stat b { display: block; font-size: 20px; font-weight: 650; }
-  .stat span { font-size: 12px; color: var(--muted); }
-  figure { margin: 0 0 16px; }
-  figure img { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-  figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-bottom: 14px; }
-  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 500; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  details { margin-top: 10px; font-size: 13px; }
-  pre { background: #f3f3f3; padding: 10px; border-radius: 6px; overflow: auto; font-size: 12px; }
-  #results:empty::before { content: "Results will appear here."; color: var(--muted); }
-</style>
+<title>ascal · all-sky camera calibration</title>
+<meta name="description" content="Upload a night image of an all-sky camera, give the site and the UTC time, and get its astrometric calibration from the stars.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230d1117' stroke='%23f4a948' stroke-width='2'/%3E%3Ccircle cx='11' cy='12' r='1.6' fill='%23e4e4e7'/%3E%3Ccircle cx='20' cy='9' r='1.2' fill='%23e4e4e7'/%3E%3Ccircle cx='22' cy='19' r='1.8' fill='%23e4e4e7'/%3E%3Ccircle cx='13' cy='22' r='1.1' fill='%23e4e4e7'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="static/app.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
+<script src="static/app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>ascal</h1>
-  <p>Zero-shot geometric calibration of an all-sky camera from a single night image. Drop a frame, give the site and the time, and get the model, residuals and overlays.</p>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <strong>ascal</strong><span class="ver" id="version"></span>
+      <small>Automatic astrometric calibration of all-sky cameras</small>
+    </div>
+  </div>
+  <nav>
+    <a href="https://github.com/GonzalezFJR/ascal" target="_blank" rel="noopener">Code</a>
+    <a href="https://lumaria.allandestars.com" target="_blank" rel="noopener">Lumaria</a>
+  </nav>
 </header>
+
 <main>
-  <section class="card">
-    <div id="drop">Drop an all-sky image here<br>or click to choose<small>JPEG/PNG, stars visible; 10–60 s of processing</small></div>
-    <input id="file" type="file" accept="image/*" hidden>
-    <div id="fname" style="font-size:13px;color:var(--muted);margin-top:8px"></div>
-    <div class="row">
-      <div><label>Latitude (° N)<input id="lat" type="number" step="0.000001" value="43.259147"></label></div>
-      <div><label>Longitude (° E)<input id="lon" type="number" step="0.000001" value="-6.60345"></label></div>
+  <!-- 1. Form -->
+  <section class="card intro" id="form-card">
+    <div class="intro-text">
+      <h1>Calibrate your all-sky camera from one night image</h1>
+      <p>Give the site and the UTC time of a clear night frame. <b>ascal</b> finds the stars, identifies them
+        without any prior calibration, mask or manual step, and fits the mapping between pixels and the sky
+        (altitude, azimuth): optical centre, focal length, fisheye distortion and tilt of the camera.</p>
+      <p class="muted">Fisheye cameras that see most of the sky, with stars down to magnitude 4–5. JPEG, PNG, TIFF, FITS or
+        camera raw. The image and the results are deleted from the server after <span id="ttl">6</span> h.</p>
+      <div class="examples" id="examples" hidden>
+        <span class="muted">No image at hand? Try an example:</span>
+        <div id="example-buttons"></div>
+      </div>
     </div>
-    <div class="row">
-      <div><label>Elevation (m)<input id="elev" type="number" step="1" value="650"></label></div>
-      <div><label>Exposure (s)<input id="exposure" type="number" step="0.1" placeholder="from EXIF"></label></div>
-    </div>
-    <label>Exposure start (ISO 8601; leave empty to use EXIF or the file name)<input id="time" type="text" placeholder="2026-08-09T03:00:46"></label>
-    <label>Time zone of the time above / file name<input id="tz" type="text" value="Europe/Madrid" placeholder="UTC"></label>
-    <label>Star-detection kernel FWHM (px; empty = measured from the image)<input id="fwhm" type="number" step="0.5" min="1" max="30" placeholder="auto"></label>
-    <label class="check"><input id="dec" type="checkbox"> fit decentering term (model B)</label>
-    <label class="check"><input id="tiles" type="checkbox"> detect in 2×2 tiles (low-memory machines)</label>
-    <button id="run" disabled>Calibrate</button>
-    <div id="status"></div>
+
+    <form id="form" autocomplete="off" novalidate>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose an image">
+        <input type="file" id="file" hidden>
+        <strong id="drop-title">Drop the image here</strong>
+        <span id="drop-sub">or click to choose a file</span>
+        <small id="formats"></small>
+      </div>
+
+      <div class="grid2">
+        <label class="field">
+          <span>Exposure start, UTC</span>
+          <input type="text" id="utc" inputmode="numeric" placeholder="2026-08-09 01:00:46" pattern="\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?" required>
+        </label>
+        <label class="field">
+          <span>Exposure (s) <em>optional</em></span>
+          <input type="number" id="exposure" min="0" max="3600" step="any" placeholder="from the file">
+        </label>
+      </div>
+      <p class="hint" id="time-hint">The mid-exposure instant is what matters: an error of 10 s moves the sky by 0.04°.</p>
+
+      <div class="grid3">
+        <label class="field">
+          <span>Latitude (° N)</span>
+          <input type="number" id="lat" min="-90" max="90" step="any" placeholder="43.2591" required>
+        </label>
+        <label class="field">
+          <span>Longitude (° E)</span>
+          <input type="number" id="lon" min="-180" max="360" step="any" placeholder="-6.6035" required>
+        </label>
+        <label class="field">
+          <span>Elevation (m)</span>
+          <input type="number" id="elev" min="-500" max="9000" step="any" value="0">
+        </label>
+      </div>
+      <button type="button" class="link" id="geo">Use my current location</button>
+
+      <details class="advanced">
+        <summary>Advanced options</summary>
+        <div class="grid3">
+          <label class="field">
+            <span title="Time allowed for the search of the calibration, star detection not included">Search time budget (s)</span>
+            <input type="number" id="max-time" min="10" max="90" step="1" value="40">
+          </label>
+          <label class="field">
+            <span>Image parity</span>
+            <select id="parity">
+              <option value="auto">automatic</option>
+              <option value="direct">direct</option>
+              <option value="mirror">mirrored</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Detection kernel</span>
+            <input type="text" id="fwhm" value="auto" placeholder="auto or px">
+          </label>
+        </div>
+      </details>
+
+      <button type="submit" class="primary" id="submit">Calibrate</button>
+      <p class="status" id="status" role="status"></p>
+    </form>
   </section>
-  <section class="card" id="results"></section>
-</main>
-<script>
-const $ = id => document.getElementById(id);
-let file = null;
-const drop = $("drop"), input = $("file");
-drop.addEventListener("click", () => input.click());
-drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
-drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
-input.addEventListener("change", () => { if (input.files[0]) setFile(input.files[0]); });
 
-async function setFile(f) {
-  file = f;
-  $("fname").textContent = `${f.name} (${(f.size / 1e6).toFixed(1)} MB)`;
-  $("run").disabled = false;
-  $("status").textContent = "reading EXIF…";
-  const fd = new FormData(); fd.append("image", f);
-  try {
-    const r = await fetch("/api/exif", { method: "POST", body: fd });
-    const j = await r.json();
-    if (j.exposure_s) $("exposure").value = j.exposure_s;
-    if (j.datetime) { $("time").value = j.datetime; $("status").textContent = "time taken from EXIF DateTimeOriginal"; }
-    else if (j.filename_time) { $("time").value = j.filename_time; $("status").textContent = "time taken from the file name (check the time zone)"; }
-    else $("status").textContent = "no time in EXIF or file name: enter the exposure start";
-  } catch (e) { $("status").textContent = ""; }
-}
-
-$("run").addEventListener("click", async () => {
-  if (!file) return;
-  const fd = new FormData();
-  fd.append("image", file);
-  for (const k of ["lat", "lon", "elev"]) fd.append(k, $(k).value);
-  if ($("time").value) fd.append("time", $("time").value);
-  if ($("tz").value) fd.append("tz", $("tz").value);
-  if ($("exposure").value) fd.append("exposure", $("exposure").value);
-  fd.append("decentering", $("dec").checked);
-  fd.append("tiles", $("tiles").checked ? 2 : 1);
-  if ($("fwhm").value) fd.append("fwhm", $("fwhm").value);
-  $("run").disabled = true;
-  $("status").className = ""; $("status").textContent = "detecting stars and searching the pose… (10–60 s)";
-  $("results").innerHTML = "";
-  const t0 = performance.now();
-  try {
-    const r = await fetch("/api/calibrate", { method: "POST", body: fd });
-    const j = await r.json();
-    if (!j.ok) { $("status").className = "error"; $("status").textContent = j.error || "calibration failed"; return; }
-    $("status").textContent = `done in ${((performance.now() - t0) / 1000).toFixed(0)} s`;
-    render(j);
-  } catch (e) { $("status").className = "error"; $("status").textContent = "request failed: " + e; }
-  finally { $("run").disabled = false; }
-});
-
-function render(j) {
-  const c = j.calibration, s = j.summary, d = c.derived;
-  const fmt = (v, n = 2) => (v === null || v === undefined) ? "–" : Number(v).toFixed(n);
-  const bands = s.bands.filter(b => b.n).map(b => `<tr><td>${b.band}</td><td class="num">${b.n}</td><td class="num">${fmt(b.median)}</td><td class="num">${fmt(b.p90)}</td><td class="num">${fmt(100 * b.within_1px, 0)}%</td></tr>`).join("");
-  $("results").innerHTML = `
-    <div class="stats">
-      <div class="stat"><b>${fmt(s.median_px)} px</b><span>median residual</span></div>
-      <div class="stat"><b>${fmt(100 * s.within_1px, 0)}%</b><span>within 1 px</span></div>
-      <div class="stat"><b>${s.n_pairs}</b><span>star–detection pairs</span></div>
-      <div class="stat"><b>${fmt(d.total_tilt_deg)}°</b><span>tilt of the optical axis</span></div>
-      <div class="stat"><b>${fmt(c.f, 1)}</b><span>focal length (px/rad)</span></div>
-      <div class="stat"><b>${fmt(d.plate_scale_axis_arcmin_per_px)}′</b><span>arcmin per pixel on axis</span></div>
-      <div class="stat"><b>${fmt(s.elapsed_s, 0)} s</b><span>processing time</span></div>
+  <!-- 2. Progress -->
+  <section class="card progress" id="progress" hidden>
+    <div class="progress-head">
+      <span class="spinner" id="spinner"></span>
+      <div>
+        <strong id="progress-title">Waiting…</strong>
+        <small id="progress-sub"></small>
+      </div>
+      <button type="button" class="ghost" id="new-1" hidden>New calibration</button>
     </div>
-    <table>
-      <tr><th>Parameter</th><th class="num">Value</th><th>Parameter</th><th class="num">Value</th></tr>
-      <tr><td>optical centre cx, cy (px)</td><td class="num">${fmt(c.cx)}, ${fmt(c.cy)}</td><td>zenith pixel</td><td class="num">${fmt(d.zenith_pixel[0], 0)}, ${fmt(d.zenith_pixel[1], 0)}</td></tr>
-      <tr><td>image rotation ψ (°)</td><td class="num">${fmt(c.psi, 4)}</td><td>horizon radius (px)</td><td class="num">${fmt(d.horizon_radius_px, 0)}</td></tr>
-      <tr><td>tilt τx, τy (°)</td><td class="num">${fmt(c.tau_x, 4)}, ${fmt(c.tau_y, 4)}</td><td>plate scale at horizon (′/px)</td><td class="num">${fmt(d.plate_scale_horizon_arcmin_per_px)}</td></tr>
-      <tr><td>k3, k5</td><td class="num">${fmt(c.k[0], 5)}, ${fmt(c.k[1], 5)}</td><td>decentering p1, p2</td><td class="num">${c.p ? c.p.map(v => v.toExponential(2)).join(", ") : "not fitted"}</td></tr>
-    </table>
-    <table>
-      <tr><th>altitude band</th><th class="num">pairs</th><th class="num">median (px)</th><th class="num">p90 (px)</th><th class="num">within 1 px</th></tr>${bands}
-    </table>
-    <figure><img src="data:image/png;base64,${j.figures.panel}"><figcaption>Summary: (a) frame as recorded; (b) matched stars, altitude circles at 0°, 30° and 60°, N–S and E–W lines and constellation figures; (c) altitude in the camera frame against distance to the optical centre; (d) residual against altitude.</figcaption></figure>
-    <figure><img src="data:image/png;base64,${j.figures.overlay}"><figcaption>Catalogue stars (m ≤ 4.5) projected with the fitted model, altitude circles at 0°, 30° and 60°, cardinal meridians, zenith (star) and optical centre (+).</figcaption></figure>
-    <figure><img src="data:image/png;base64,${j.figures.cutouts}"><figcaption>Cut-outs around bright stars: detections (circles) and predicted positions (+).</figcaption></figure>
-    <figure><img src="data:image/png;base64,${j.figures.residuals}"><figcaption>Residuals against altitude, residual vectors on the sensor, and histogram.</figcaption></figure>
-    <figure><img src="data:image/png;base64,${j.figures.radial}"><figcaption>Radial function and plate scale against the ideal fisheye projections.</figcaption></figure>
-    <details><summary>Calibration JSON</summary><pre>${JSON.stringify(c, null, 1)}</pre></details>
-    <details><summary>Log</summary><pre>${(j.log || []).join("\n")}</pre></details>`;
-}
-</script>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <!-- 3. Viewer -->
+  <section class="viewer-wrap" id="viewer-wrap" hidden>
+    <div class="viewer-head">
+      <div>
+        <h2 id="result-title">Calibration</h2>
+        <small id="result-sub"></small>
+      </div>
+      <div class="actions">
+        <button type="button" class="ghost" id="new-2">New calibration</button>
+        <button type="button" class="ghost" id="share">Copy link</button>
+      </div>
+    </div>
+    <div class="viewer">
+      <aside class="layers" id="layers">
+        <h3>Layers</h3>
+        <div id="layer-list"></div>
+        <h3>Image</h3>
+        <label class="slider">Brightness <input type="range" id="bright" min="0.3" max="3" step="0.05" value="1"></label>
+        <label class="slider">Contrast <input type="range" id="contrast" min="0.3" max="3" step="0.05" value="1"></label>
+        <label class="slider">Residual arrows ×<span id="vec-k">100</span> <input type="range" id="vec" min="10" max="500" step="10" value="100"></label>
+        <h3>Export</h3>
+        <div class="exports">
+          <button type="button" id="exp-png">Image with layers (PNG)</button>
+          <a class="btn" id="exp-cal" download>Calibration (JSON)</a>
+          <button type="button" id="exp-all">All results (JSON)</button>
+          <a class="btn" id="exp-csv" download>Matched stars (CSV)</a>
+          <a class="btn" id="exp-panel" download>Summary figure (PNG)</a>
+        </div>
+      </aside>
+      <div class="stage" id="stage">
+        <canvas id="canvas"></canvas>
+        <div class="zoom">
+          <button type="button" id="zin" title="Zoom in">+</button>
+          <button type="button" id="zout" title="Zoom out">−</button>
+          <button type="button" id="zfit" title="Fit">⤢</button>
+          <button type="button" id="z1" title="1 image pixel = 1 screen pixel">1:1</button>
+        </div>
+        <div class="readout" id="readout">Move over the image</div>
+        <div class="tip" id="tip" hidden></div>
+        <div class="hint-overlay">Scroll or pinch to zoom · drag to pan · double-click to zoom in</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Results -->
+  <section class="results" id="results" hidden>
+    <div class="kpis" id="kpis"></div>
+    <div class="tables" id="tables"></div>
+    <h2 class="section">Diagnostics</h2>
+    <p class="muted small">Every chart is interactive: hover for details, drag a box or use the wheel to zoom, and click a
+      star to centre it in the image.</p>
+    <div class="charts" id="charts"></div>
+    <details class="card logbox">
+      <summary>Calibration log</summary>
+      <pre class="log" id="log-final"></pre>
+    </details>
+  </section>
+</main>
+
+<footer>
+  <p><b>ascal</b> is the calibration software of the <a href="https://lumaria.allandestars.com" target="_blank" rel="noopener">Lumaria</a>
+    light-pollution monitoring network (Allande Stars). Method: J. R. González Fernández, L. Hermosa Muñoz, M. Fernández Alonso,
+    L. González Cuesta, <i>Automatic astrometric calibration of low-cost all-sky cameras</i> (2026, submitted).
+    Star positions from Hipparcos (ESA 1997); constellation figures from d3-celestial (O. Frohn).</p>
+  <p class="muted">Uploaded images are used only to compute the calibration and are deleted after the job; results expire after a few hours.</p>
+</footer>
 </body>
 </html>

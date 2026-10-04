@@ -229,16 +229,25 @@ pip install ".[dev]"
 python notebooks/build_demo.py && jupyter nbconvert --to notebook --execute --inplace notebooks/demo.ipynb
 ```
 
-## Web demo
+## Web app
+
+**Online:** <https://lumaria.allandestars.com/ascal/> (anyone can upload an image).
+
+Locally:
 
 ```bash
 pip install ".[web]"
 ascal web            # http://127.0.0.1:8000
 ```
 
-Drop an image, check the site and time (pre-filled from EXIF or the file name when possible), press
-*Calibrate*, and get the parameters, per-band residuals, the summary panel, overlay, cut-outs, residual plots and
-the calibration JSON. The computation runs in the server process, one job at a time.
+Drop an image and give the UTC start of the exposure and the site (the time is pre-filled from FITS headers and
+EXIF). The result is shown on a zoomable viewer with layers (matched stars, all detections, catalogue stars and
+names, alt/az grid, cardinal points, constellations, residual arrows, zenith and optical centre; the altitude and
+azimuth under the cursor), followed by tables of the model, the fit quality per altitude band and the processing, and
+interactive charts (projection curve against the ideal fisheye projections, residuals against altitude and
+magnitude, residual vectors on the sensor, residual distribution and components, plate scale). The image with its
+layers, the calibration JSON, all results, the matched stars (CSV) and the summary figure can be downloaded. Jobs run
+one at a time from a queue, each in its own process; see `deploy/` for the public deployment.
 
 ## Inputs, outputs and limits
 

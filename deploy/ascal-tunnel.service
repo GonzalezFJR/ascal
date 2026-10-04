@@ -1,0 +1,17 @@
+# Reverse SSH tunnel: the public web server (EC2) reaches the ascal web app on this machine.
+# Install: ~/.config/systemd/user/ascal-tunnel.service; systemctl --user enable --now ascal-tunnel;
+#          loginctl enable-linger $USER  (so it runs without a login session)
+[Unit]
+Description=Reverse SSH tunnel for the ascal web app (EC2 127.0.0.1:8790 -> local 127.0.0.1:8790)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -T -i %h/.ssh/ascal_tunnel -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+    -R 127.0.0.1:8790:127.0.0.1:8790 ubuntu@ec2-13-61-154-224.eu-north-1.compute.amazonaws.com
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

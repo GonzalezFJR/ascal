@@ -1,0 +1,28 @@
+# Public ascal web app. Run from deploy/: docker compose up -d --build
+# Listens on 127.0.0.1:8790 only; the public site reaches it through a reverse SSH tunnel (see deploy/README.md).
+services:
+  ascal-web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ascal-web
+    container_name: ascal-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8790:8000"
+    environment:
+      ASCAL_WEB_TRUST_PROXY: "1"
+      ASCAL_WEB_MAX_MB: "150"
+      ASCAL_WEB_RATE: "20"
+      ASCAL_WEB_TTL_H: "6"
+      ASCAL_WEB_MAX_QUEUE: "8"
+      ASCAL_WEB_MAX_TIME: "90"
+    volumes:
+      - ascal-web-data:/data
+    mem_limit: 6g
+    cpus: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+volumes:
+  ascal-web-data:
