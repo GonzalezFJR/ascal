@@ -1,22 +1,19 @@
 """Zero-shot calibration: from one or more night frames, with no prior calibration, mask or labels.
 
-Stages
-------
-1. Sky disc -> initial optical centre and equidistant focal length ``f = 2 R_h / pi``.
-2. Blind pose search: image rotation ``psi`` (0-360 deg in 3 deg steps) x displacement of the zenith
-   with respect to the disc centre (+-210 px in 30 px steps; a tilted camera moves the zenith) x focal
-   scale (0.88-1.20).  Score: number of catalogue stars brighter than magnitude 3 above 45 deg that
-   fall within 25 px of one of the 200 brightest detections.  The best distinct candidates are refined
-   (0.5 deg, 5 px) and validated by a first round of association.
-3. Progressive association and fitting: mag <= 3.5 / 30 px -> mag <= 4.5 / 25 px -> mag <= 5.5 / 12 px
-   -> 7 px, always with unique and mutual pairs and a robust loss; per-band clipping at the end.
+Version 1.0 runs an incremental cascade (:mod:`ascal.fast`): the hypotheses about the image (sky disc, parity,
+detection kernel, radial prior) are tried in order of prior likelihood and the search stops at the first one
+that passes the quality gate, within a time budget (``config.max_time``, 40 s by default).  Each step is:
 
-Quality gate: at least 80 pairs and a median residual below 2 px (a fit that barely passes a looser
-gate can hide a wrong pose; see the paper).
+1. Blind pose: rotation, zenith displacement and focal scale found by counting bright catalogue stars that land
+   on detections, using a distance transform of the detections (both parities at once).
+2. Progressive association and fitting (this module, :func:`refine`): mag <= 4.5 / 25 px -> mag <= 5.5 /
+   12 px -> 7 px, unique and mutual pairs, robust loss, per-band clipping.  Radii scale with the plate scale
+   (they refer to the 1005 px/rad camera of the paper).
+3. Gate: tight fit and either fair coverage of the stars bright enough to be seen in the frame, or a pose that
+   clearly beats every rival.
 
-When the frames were loaded with ``fwhm="auto"`` and ``keep_image=True`` and the calibration fails,
-the detection is repeated with other kernel widths (RETRY_FWHM_FACTORS times the first one) before
-giving up: a kernel much narrower than the stars loses the bright stars the pose search relies on.
+With several frames, the frame with most detections is calibrated by the cascade and the model is then refined
+on all of them together.
 """
 from __future__ import annotations
 
@@ -27,9 +24,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from . import config
 from .catalog import Catalog, load_catalog, sky_stars
-from .detect import DEFAULT_FWHM, FWHM_MAX, Frame
-from .match import Pairs, associate, unique_mutual
+from .detect import Frame
+from .match import Pairs, associate
 from .model import CameraModel, band_statistics, fit, residuals, robust_fit
 
 
@@ -67,95 +65,7 @@ def _log(verbose: bool, msg: str) -> None:
         print(msg, flush=True)
 
 
-# ---------------------------------------------------------------------- stage 2: blind pose search
-
-def blind_pose(frames: Sequence[Frame], site: Site, catalog: Catalog, *, model0: CameraModel, verbose: bool = True,
-               psi_step: float = 3.0, shift_max: int = 210, shift_step: int = 30,
-               focal_scales: Sequence[float] = (0.88, 0.96, 1.04, 1.12, 1.20), n_candidates: int = 4) -> Tuple[CameraModel, Dict[str, Any]]:
-    """Find image rotation, zenith displacement and focal scale by counting bright-star coincidences."""
-    from scipy.spatial import cKDTree
-
-    t0 = time.perf_counter()
-    cx, cy, f0 = model0.cx, model0.cy, model0.f
-    w, h = model0.width, model0.height
-    bright = [sky_stars(site.lat, site.lon, fr.utc, min_alt=45.0, max_mag=3.0, catalog=catalog) for fr in frames]
-    trees = [cKDTree(fr.detections.xy[fr.detections.order[:200]]) for fr in frames]
-    n_exp = sum(len(b) for b in bright)
-    if n_exp < 4:
-        raise CalibrationError("Fewer than 4 catalogue stars brighter than magnitude 3 above 45 deg: check site and time")
-    psis = np.arange(0.0, 360.0, psi_step)
-    cos_t, sin_t = np.cos(np.radians(psis)), np.sin(np.radians(psis))
-    cands = []
-    for fs in focal_scales:
-        m = model0.copy(cx=0.0, cy=0.0, f=f0 * fs, psi=0.0, tau_x=0.0, tau_y=0.0)
-        uv = []
-        for b in bright:
-            px, py = m.project(b.alt, b.az)
-            ok = np.isfinite(px)
-            uv.append((px[ok], py[ok]))
-        for dx in range(-shift_max, shift_max + 1, shift_step):
-            for dy in range(-shift_max, shift_max + 1, shift_step):
-                counts = np.zeros(psis.size, int)
-                for (u, v), tr in zip(uv, trees):
-                    # psi rotates (u, v) about the centre: project once and rotate for all orientations
-                    U = u[None, :] * cos_t[:, None] - v[None, :] * sin_t[:, None] + cx + dx
-                    V = u[None, :] * sin_t[:, None] + v[None, :] * cos_t[:, None] + cy + dy
-                    d, _ = tr.query(np.column_stack([U.ravel(), V.ravel()]), k=1)
-                    counts += (d.reshape(U.shape) <= 25.0).sum(axis=1)
-                k = int(np.argmax(counts))
-                cands.append((int(counts[k]), float(psis[k]), dx, dy, fs))
-    cands.sort(key=lambda c: -c[0])
-    distinct: List[Tuple[int, float, int, int, float]] = []
-    for c in cands:
-        if all(abs(((c[1] - d[1] + 180) % 360) - 180) > 10 or abs(c[2] - d[2]) + abs(c[3] - d[3]) > 60 for d in distinct):
-            distinct.append(c)
-        if len(distinct) >= n_candidates:
-            break
-
-    def score(psi: float, dx: float, dy: float, fs: float, radius: float) -> int:
-        m = model0.copy(cx=cx + dx, cy=cy + dy, f=f0 * fs, psi=psi, tau_x=0.0, tau_y=0.0)
-        n = 0
-        for b, tr in zip(bright, trees):
-            px, py = m.project(b.alt, b.az)
-            ok = np.isfinite(px)
-            if ok.any():
-                d, _ = tr.query(np.column_stack([px[ok], py[ok]]), k=1)
-                n += int((d <= radius).sum())
-        return n
-
-    trials = []
-    for n0, psi0, dx0, dy0, fs0 in distinct:
-        best = (n0, psi0, dx0, dy0)
-        for psi in np.arange(psi0 - 3.0, psi0 + 3.01, 0.5):
-            for dx in range(dx0 - 15, dx0 + 16, 5):
-                for dy in range(dy0 - 15, dy0 + 16, 5):
-                    n = score(psi, dx, dy, fs0, 15.0)
-                    if n > best[0]:
-                        best = (n, psi, dx, dy)
-        n0, psi0, dx0, dy0 = best
-        m = model0.copy(cx=cx + dx0, cy=cy + dy0, f=f0 * fs0, psi=psi0, tau_x=0.0, tau_y=0.0)
-        pairs = Pairs.concatenate([associate(m, sky_stars(site.lat, site.lon, fr.utc, min_alt=25.0, max_mag=3.5, catalog=catalog, model=m),
-                                             fr.detections, radius=30.0, n_brightest=400, frame_index=i) for i, fr in enumerate(frames)])
-        n1 = 0
-        if len(pairs) >= 8:
-            m = fit(m, pairs.alt, pairs.az, pairs.x, pairs.y, loss="soft_l1", f_scale=8.0, fixed=("k",))
-            n1 = sum(len(associate(m, sky_stars(site.lat, site.lon, fr.utc, min_alt=15.0, max_mag=4.5, catalog=catalog, model=m),
-                                   fr.detections, radius=12.0, n_brightest=1500)) for fr in frames)
-        trials.append((n1, n0, m, (psi0, dx0, dy0, fs0)))
-        _log(verbose, f"  candidate psi {psi0:.1f} deg, zenith shift ({dx0}, {dy0}) px, focal x{fs0:.2f}: "
-                      f"{n0}/{n_exp} bright coincidences -> {n1} pairs of mag <= 4.5 within 12 px")
-    trials.sort(key=lambda t: -t[0])
-    n1, n0, model, pose = trials[0]
-    info = {"pose_search_s": round(time.perf_counter() - t0, 1), "pose_candidates": [t[3] for t in trials], "pose_validation_pairs": int(n1),
-            "bright_coincidences": f"{n0}/{n_exp}"}
-    if n1 < 40:
-        raise CalibrationError(f"Blind pose search found no reliable pose ({n1} validation pairs): few stars, clouds, or wrong site/time")
-    _log(verbose, f"  initial pose: psi {model.psi:.1f} deg, {n1} validation pairs ({info['pose_search_s']} s)")
-    return model, info
-
-
-# ---------------------------------------------------------------------- stage 3: progressive refinement
-
+# ---------------------------------------------------------------------- progressive refinement
 MIN_PAIRS = 80          # quality gate
 MAX_MEDIAN_PX = 2.0
 
@@ -171,8 +81,11 @@ def refine(model: CameraModel, frames: Sequence[Frame], site: Site, catalog: Cat
            stages: Sequence[Tuple] = STAGES, verbose: bool = True) -> CalibrationResult:
     """Progressive association and fitting from an approximate model; ends with per-band clipping."""
     t0 = time.perf_counter()
+    S = config.radius_scale(model.f)
+    stages = tuple(stages) * int(config.get("stage_repeats", 1))
     pairs = Pairs.concatenate([])
     for k, (max_mag, min_alt, radius, n_det, f_scale) in enumerate(stages):
+        radius, f_scale = radius * S, f_scale * S
         pairs = Pairs.concatenate([associate(model, sky_stars(site.lat, site.lon, fr.utc, min_alt=min_alt, max_mag=max_mag, catalog=catalog, model=model),
                                              fr.detections, radius=radius, n_brightest=n_det, frame_index=i) for i, fr in enumerate(frames)])
         if len(pairs) < 12:
@@ -182,106 +95,73 @@ def refine(model: CameraModel, frames: Sequence[Frame], site: Site, catalog: Cat
         model = fit(model, pairs.alt, pairs.az, pairs.x, pairs.y, loss="soft_l1", f_scale=f_scale)
         d = pairs.residuals(model)
         _log(verbose, f"  stage {k}: mag <= {max_mag}, radius {radius:.0f} px -> {len(pairs)} pairs, median {np.median(d):.2f} px, p90 {np.percentile(d, 90):.2f} px")
-    model, keep = robust_fit(model, pairs.alt, pairs.az, pairs.x, pairs.y)
+    model, keep = robust_fit(model, pairs.alt, pairs.az, pairs.x, pairs.y, floor_px=3.0 * S)
     d = pairs.residuals(model)[keep]
     info = {"refine_s": round(time.perf_counter() - t0, 1), "n_candidates": len(pairs), "n_inliers": int(keep.sum())}
     _log(verbose, f"  final: {keep.sum()} pairs, median {np.median(d):.2f} px, rms {np.sqrt(np.mean(d * d)):.2f} px")
-    if keep.sum() < MIN_PAIRS or np.median(d) > MAX_MEDIAN_PX:
+    min_pairs, max_med = config.get("min_pairs", MIN_PAIRS), config.get("max_median_px", MAX_MEDIAN_PX)
+    if keep.sum() < min_pairs or np.median(d) > max_med:
         raise CalibrationError(f"Calibration not reliable: {keep.sum()} pairs, median {np.median(d):.2f} px "
-                               f"(gate: >= {MIN_PAIRS} pairs and median <= {MAX_MEDIAN_PX} px)")
+                               f"(gate: >= {min_pairs} pairs and median <= {max_med} px)")
     return CalibrationResult(model, pairs, keep, info)
 
 
 # ---------------------------------------------------------------------- full pipeline
 
-RETRY_FWHM_FACTORS = (1.5, 2.0, 0.75)
-
-
-def _retry_widths(frames: Sequence[Frame]) -> List[float]:
-    """Kernel widths to try again with, or [] when the frames do not allow a new detection."""
-    if not all(fr.gray is not None and fr.info.get("fwhm_mode") == "auto" for fr in frames):
-        return []
-    f0 = float(np.median([fr.info["fwhm"] for fr in frames]))
-    out: List[float] = []
-    for k in RETRY_FWHM_FACTORS:
-        f = round(float(np.clip(f0 * k, 0.75 * DEFAULT_FWHM, FWHM_MAX)), 2)
-        if abs(f - f0) > 0.25 and all(abs(f - g) > 0.25 for g in out):
-            out.append(f)
-    return out
-
-
-def _fwhm_hint(frames: Sequence[Frame]) -> str:
-    parts = []
-    for fr in frames[:3]:
-        m = fr.info.get("fwhm_measured")
-        parts.append(f"{fr.path.name}: kernel {fr.info.get('fwhm', DEFAULT_FWHM):g} px" + (f", stars measured {m:g} px" if m is not None else ""))
-    return (" [detection: " + "; ".join(parts) + ". If the stars are wide, saturated or the image is noisy, "
-            "try another detection kernel, e.g. --fwhm 6]")
-
-
-def _calibrate_once(frames: Sequence[Frame], site: Site, cat: Catalog, *, decentering: bool, initial: Optional[CameraModel],
-                    verbose: bool) -> Tuple[CalibrationResult, Dict[str, Any]]:
-    h, w = frames[0].shape
-    info: Dict[str, Any] = {}
-    if initial is None:
-        cx = float(np.median([fr.disc[0] for fr in frames]))
-        cy = float(np.median([fr.disc[1] for fr in frames]))
-        rh = float(np.median([fr.disc[2] for fr in frames]))
-        info["sky_disc"] = [round(cx, 1), round(cy, 1), round(rh, 1)]
-        _log(verbose, f"sky disc: centre ({cx:.0f}, {cy:.0f}), radius {rh:.0f} px -> f0 = {2 * rh / math.pi:.0f} px/rad")
-        model0 = CameraModel.initial(w, h, cx, cy, rh)
-        model, pose_info = blind_pose(frames, site, cat, model0=model0, verbose=verbose)
-        info.update(pose_info)
-    else:
-        model = initial.copy(width=w, height=h)
-    return refine(model, frames, site, cat, decentering=decentering, verbose=verbose), info
+def _unmirror_result(result: CalibrationResult, width: int) -> CalibrationResult:
+    """Express a result obtained on horizontally mirrored detections in the coordinates of the original image."""
+    result.model = result.model.copy(mirror=not result.model.mirror)
+    result.pairs.x = (width - 1) - result.pairs.x
+    return result
 
 
 def calibrate(frames: Sequence[Frame], site: Site, *, decentering: bool = False, catalog: Optional[Catalog] = None,
-              initial: Optional[CameraModel] = None, verbose: bool = True) -> CalibrationResult:
+              initial: Optional[CameraModel] = None, verbose: bool = True, max_time: Optional[float] = None) -> CalibrationResult:
     """Zero-shot calibration from detected frames (see module docstring).
 
-    With ``initial`` (an approximate model, e.g. from a previous calibration) the blind pose search is
-    skipped and only the progressive refinement runs.  Frames loaded with ``fwhm="auto"`` and
-    ``keep_image=True`` are detected again with other kernel widths if the calibration fails (their
-    detections are replaced in place by those of the successful attempt).
+    ``initial`` (an approximate model, e.g. a previous calibration of the same camera) skips the cascade and
+    runs only the progressive refinement.  ``max_time`` overrides ``config.max_time`` (seconds); the clock starts
+    when this function is called.  Frames should be loaded with ``keep_image=True`` so that the cascade can try a
+    wider detection kernel when needed.  The returned model maps sky to the pixels of the images as given (a
+    mirrored camera is handled by ``CameraModel.mirror``).
     """
+    from .fast import calibrate_fast, mirrored
+
     t_start = time.perf_counter()
     cat = catalog or load_catalog()
     h, w = frames[0].shape
     for fr in frames:
         if fr.shape != (h, w):
             raise CalibrationError("All frames must have the same size")
-    retries = _retry_widths(frames)
-    attempts: List[Dict[str, Any]] = []
-    while True:
-        fwhm = [fr.info.get("fwhm") for fr in frames]
-        try:
-            result, info = _calibrate_once(frames, site, cat, decentering=decentering, initial=initial, verbose=verbose)
-            attempts.append({"fwhm": fwhm, "ok": True})
-            break
-        except CalibrationError as exc:
-            attempts.append({"fwhm": fwhm, "ok": False, "error": str(exc)})
-            if not retries:
-                if len(attempts) > 1:
-                    tried = ", ".join(f"{a['fwhm'][0]:g}" for a in attempts)
-                    raise CalibrationError(f"{exc} (detection kernels tried: {tried} px)") from None
-                raise CalibrationError(str(exc) + _fwhm_hint(frames)) from None
-            f = retries.pop(0)
-            _log(verbose, f"  calibration failed with kernel FWHM {fwhm[0]:g} px ({exc}); detecting again with {f:g} px")
-            for fr in frames:
-                fr.redetect(f)
+    with config.options(elev=site.elev):
+        if initial is not None:
+            m0 = initial.copy(width=w, height=h)
+            if m0.mirror:
+                res = refine(m0.copy(mirror=False), [mirrored(fr) for fr in frames], site, cat, decentering=decentering, verbose=verbose)
+                res = _unmirror_result(res, w)
+            else:
+                res = refine(m0, frames, site, cat, decentering=decentering, verbose=verbose)
+            info: Dict[str, Any] = {"cascade": None}
+        else:
+            lead = max(range(len(frames)), key=lambda i: len(frames[i].detections))
+            budget = float(max_time if max_time is not None else config.get("max_time", 40.0))
+            res, log = calibrate_fast(frames[lead], site, verbose=verbose, catalog=cat, deadline=t_start + budget)
+            info = {"cascade": log}
+            parity = log["parity"]
+            if len(frames) > 1 or decentering:
+                group = [fr if parity == "direct" else mirrored(fr) for fr in frames]
+                res = refine(res.model, group, site, cat, decentering=decentering, verbose=verbose)
+            if parity == "mirror":
+                res = _unmirror_result(res, w)
     info.update({"n_frames": len(frames), "frames": [fr.path.name for fr in frames],
                  "n_detections": [len(fr.detections) for fr in frames], "fwhm": [fr.info.get("fwhm") for fr in frames],
-                 "fwhm_measured": [fr.info.get("fwhm_measured") for fr in frames]})
-    if len(attempts) > 1:
-        info["attempts"] = attempts
-    result.info.update(info)
-    result.info["elapsed_s"] = round(time.perf_counter() - t_start, 1)
-    result.model.meta.update({"calibration": "ascal zero-shot", "frames": info["frames"], "site": vars(site),
-                              "n_pairs": int(result.inliers.sum()), "median_px": round(float(np.median(result.residual_px[result.inliers])), 3),
-                              "detection_fwhm_px": info["fwhm"]})
-    return result
+                 "fwhm_measured": [fr.info.get("fwhm_measured") for fr in frames], "elapsed_s": round(time.perf_counter() - t_start, 1)})
+    res.info.update(info)
+    d = res.residual_px[res.inliers]
+    res.model.meta.update({"calibration": "ascal 1.0 cascade", "frames": info["frames"], "site": vars(site),
+                           "n_pairs": int(res.inliers.sum()), "median_px": round(float(np.median(d)), 3),
+                           "detection_fwhm_px": info["fwhm"], "refraction": bool(config.get("refraction"))})
+    return res
 
 
 def evaluate(model: CameraModel, frames: Sequence[Frame], site: Site, *, max_mag: float = 5.5, min_alt: float = 3.0,
@@ -295,8 +175,9 @@ def evaluate(model: CameraModel, frames: Sequence[Frame], site: Site, *, max_mag
 
     cat = catalog or load_catalog()
     parts = []
-    for i, fr in enumerate(frames):
-        stars = sky_stars(site.lat, site.lon, fr.utc, min_alt=min_alt, max_mag=max_mag, catalog=cat, model=model)
-        zp = frame_zero_point(model, stars, fr.detections) if photometric_gate else None
-        parts.append(associate(model, stars, fr.detections, radius=radius, zp=zp, frame_index=i))
+    with config.options(elev=site.elev):
+        for i, fr in enumerate(frames):
+            stars = sky_stars(site.lat, site.lon, fr.utc, min_alt=min_alt, max_mag=max_mag, catalog=cat, model=model)
+            zp = frame_zero_point(model, stars, fr.detections) if photometric_gate else None
+            parts.append(associate(model, stars, fr.detections, radius=radius, zp=zp, frame_index=i))
     return Pairs.concatenate(parts)

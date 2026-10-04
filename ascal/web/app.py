@@ -67,7 +67,7 @@ async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), l
         path.write_bytes(await image.read())
         t = datetime.fromisoformat(time) if time else None
         kernel = "auto" if not fwhm or fwhm.strip().lower() == "auto" else float(fwhm)
-        frame = load_frame(path, time=t, tz=tz or None, exposure_s=exposure, tiles=max(1, tiles), keep_image=True, fwhm=kernel)
+        frame = load_frame(path, time=t, tz=tz or None, exposure_s=exposure, tiles=(tiles if tiles > 1 else None), keep_image=True, fwhm=kernel)
         site = Site(lat, lon, elev)
         log: list = []
         import io, contextlib
@@ -85,6 +85,7 @@ async def api_calibrate(image: UploadFile = File(...), lat: float = Form(...), l
             "summary": {k: v for k, v in summary.items() if k not in ("pose_candidates",)},
             "log": log,
             "figures": {
+                "panel": base64.b64encode(plots.calibration_panel(frame, result, site)).decode(),
                 "overlay": base64.b64encode(plots.overlay(frame, result.model, site)).decode(),
                 "cutouts": base64.b64encode(plots.cutouts(frame, result.model, site)).decode(),
                 "residuals": base64.b64encode(plots.residual_plots(result)).decode(),

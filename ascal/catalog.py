@@ -161,6 +161,9 @@ def sky_stars(lat: float, lon: float, t: datetime, *, min_alt: float = 0.0, max_
     lst = sidereal_time_deg(lon, t)
     ra, dec = precess_j2000(cat.ra, cat.dec, t)
     alt, az = radec_to_altaz(ra, dec, lat, lst)
+    from . import config
+    if config.get("refraction"):
+        alt = alt + config.refraction_deg(alt, config.get("elev", 0.0))
     keep = alt >= min_alt
     out = SkyStars([n for n, k in zip(cat.names, keep) if k], cat.hip[keep], cat.mag[keep], alt[keep], az[keep], airmass(alt[keep]))
     if model is not None:

@@ -175,3 +175,145 @@ def radial_plot(model: CameraModel, path: Optional[Path | str] = None):
     ax.legend(fontsize=7)
     fig.tight_layout()
     return _output(fig, path)
+
+
+# ---------------------------------------------------------------------- summary panel
+_CONSTELLATIONS: Optional[dict] = None
+
+
+def constellation_lines() -> dict:
+    """Constellation figures as J2000 polylines {abbreviation: [[[ra, dec], ...], ...]} (d3-celestial, BSD 3-Clause)."""
+    global _CONSTELLATIONS
+    if _CONSTELLATIONS is None:
+        import json
+        _CONSTELLATIONS = json.loads((Path(__file__).resolve().parent / "data" / "constellation_lines.json").read_text())["lines"]
+    return _CONSTELLATIONS
+
+
+def _radec_polyline_altaz(ra, dec, lat, lon, t, n: int = 16):
+    """Alt/az (apparent if refraction is on) of a J2000 polyline, densified along great circles."""
+    from . import config
+    from .catalog import precess_j2000, radec_to_altaz, sidereal_time_deg
+    from .model import altaz_to_vec, vec_to_altaz
+    ra_d, dec_d = precess_j2000(np.asarray(ra, float), np.asarray(dec, float), t)
+    alt, az = radec_to_altaz(ra_d, dec_d, lat, sidereal_time_deg(lon, t))
+    v = altaz_to_vec(alt, az)
+    out = [v[:1]]
+    for v0, v1 in zip(v[:-1], v[1:]):
+        w = float(np.arccos(np.clip(v0 @ v1, -1, 1)))
+        s = np.linspace(0, 1, n)[1:, None]
+        out.append(v1[None] if w < 1e-6 else (np.sin((1 - s) * w) * v0 + np.sin(s * w) * v1) / np.sin(w))
+    a, z = vec_to_altaz(np.vstack(out))
+    if config.get("refraction"):
+        a = a + config.refraction_deg(a, config.get("elev", 0.0))
+    return a, z
+
+
+def _display_image(gray: np.ndarray, max_side: int = 1600) -> np.ndarray:
+    step = max(1, int(math.ceil(max(gray.shape) / max_side)))
+    small = gray[::step, ::step].astype(np.float32)
+    lo, hi = np.percentile(small, [1.0, 99.7])
+    return np.clip((small - lo) / max(hi - lo, 1e-6), 0, 1) ** 0.6
+
+
+def calibration_panel(frame: Frame, result: CalibrationResult, site: Site, *, frame_index: int = 0,
+                      path: Optional[Path | str] = None, title: Optional[str] = None):
+    """Four-panel summary of a calibration on one frame:
+    (a) the frame as recorded; (b) matched stars with the altitude circles (0, 30, 60 deg), the N-S and E-W lines and
+    the constellation figures projected by the calibration; (c) altitude in the camera frame against distance to the
+    optical centre (model, equidistant projection of the same focal length, matched stars); (d) residual against altitude."""
+    plt = _plt()
+    from .detect import read_image
+    model = result.model
+    gray = frame.gray if frame.gray is not None else read_image(frame.path)
+    W, H = model.width, model.height
+    sel = (result.pairs.frame == frame_index) & result.inliers
+    p = result.pairs
+    alt, az, x, y, res = p.alt[sel], p.az[sel], p.x[sel], p.y[sel], result.residual_px[sel]
+
+    def clip(px, py):
+        px, py = np.array(px, float), np.array(py, float)
+        bad = ~((px >= 0) & (px < W) & (py >= 0) & (py < H))
+        px[bad], py[bad] = np.nan, np.nan
+        return px, py
+
+    def square(ax):
+        s = max(W, H) / 2
+        ax.set_xlim(W / 2 - s, W / 2 + s)
+        ax.set_ylim(H / 2 + s, H / 2 - s)
+        ax.set_facecolor("black")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    img = _display_image(gray)
+    fig, axs = plt.subplots(2, 2, figsize=(7.4, 7.4))
+    (a, b), (c, e) = axs
+    for ax in (a, b):
+        ax.imshow(img, cmap="gray", extent=(0, W, H, 0), interpolation="lanczos", vmin=0, vmax=1)
+        square(ax)
+        for sp in ax.spines.values():
+            sp.set_visible(True)
+    a.set_title("(a) frame as recorded")
+    b.set_title("(b) matched stars and calibration")
+    guide = dict(color="#d8d8d8", lw=0.6, alpha=0.75)
+    azg = np.linspace(0, 360, 721)
+    for a0 in (0, 30, 60):
+        b.plot(*clip(*model.project(np.full_like(azg, a0 + (0.2 if a0 == 0 else 0.0)), azg)), ls="--" if a0 == 0 else "-", **guide)
+    altg = np.linspace(0.2, 90, 120)
+    for z0 in (0, 90, 180, 270):
+        b.plot(*clip(*model.project(altg, np.full_like(altg, float(z0)))), **guide)
+    for z0, name in ((0, "N"), (90, "E"), (180, "S"), (270, "W")):
+        px, py = model.project(np.array([6.0]), np.array([float(z0)]))
+        if np.isfinite(px[0]) and 0 <= px[0] < W and 0 <= py[0] < H:
+            b.text(px[0], py[0], name, color="white", fontsize=8, fontweight="bold", ha="center", va="center")
+    for polylines in constellation_lines().values():
+        for line in polylines:
+            ra, dec = np.array(line).T
+            la, lz = _radec_polyline_altaz(ra, dec, site.lat, site.lon, frame.utc)
+            if np.all(la < 0.5):
+                continue
+            la = np.where(la > 0.5, la, np.nan)
+            b.plot(*clip(*model.project(la, lz)), color="#ff9f1c", lw=0.6, alpha=0.5)
+    b.scatter(x, y, s=12, facecolors="none", edgecolors="#4da3ff", linewidths=0.6, alpha=0.7, label=f"matched stars ({sel.sum()})")
+    b.legend(loc="lower left", fontsize=6.5, labelcolor="white", facecolor="black", framealpha=0.55, frameon=True, markerscale=1.6,
+             borderpad=0.3, handletextpad=0.2)
+
+    xu = (W - 1) - x if model.mirror else x
+    r_det = np.hypot(xu - model.cx, y - model.cy)
+    alt_c, _ = model.sky_to_camera(alt, az)
+    th = np.radians(np.linspace(0, 90, 181))
+    c.scatter(r_det, alt_c, s=7, color=BLUE, edgecolors="none", alpha=0.55, label="matched stars", zorder=2)
+    c.plot(model.radius(th), 90 - np.degrees(th), color="#c0392b", lw=0.9, label="model", zorder=3)
+    c.plot(model.f * th, 90 - np.degrees(th), color="0.45", lw=0.8, ls="--", label="equidistant, same f", zorder=1)
+    c.set_xlabel("distance to the optical centre (px)")
+    c.set_ylabel("altitude in the camera frame (°)")
+    c.set_ylim(0, 90)
+    c.set_xlim(0, model.horizon_radius * 1.03)
+    c.grid(alpha=0.3)
+    c.legend(fontsize=7, loc="upper right", frameon=True)
+    c.set_title("(c) projection: altitude vs radius")
+    c.set_box_aspect(1)
+
+    top = max(2.5, 1.25 * float(np.percentile(res, 98))) if res.size else 2.5
+    e.scatter(alt, res, s=4, color=BLUE, edgecolors="none", alpha=0.7, label="matched")
+    mid, med = [], []
+    for lo in range(0, 90, 10):
+        s = (alt >= lo) & (alt < lo + 10)
+        if s.sum() >= 5:
+            mid.append(lo + 5)
+            med.append(float(np.median(res[s])))
+    e.plot(mid, med, color="k", lw=1.1, marker="o", ms=3, label="median per 10°")
+    if res.size:
+        e.axhline(float(np.median(res)), color="0.5", ls="--", lw=0.8, label=f"overall median {np.median(res):.2f} px")
+    e.set_xlim(0, 90)
+    e.set_ylim(0, top * 1.3)
+    e.grid(alpha=0.3)
+    e.set_xlabel("altitude (°)")
+    e.set_ylabel("residual (px)")
+    e.legend(fontsize=6.5, loc="upper center", ncol=2, frameon=True, framealpha=0.9)
+    e.set_title("(d) residual vs altitude")
+    e.set_box_aspect(1)
+    if title:
+        fig.suptitle(title, fontsize=9)
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.93 if title else 0.96, bottom=0.07, wspace=0.22, hspace=0.2)
+    return _output(fig, path, dpi=200)

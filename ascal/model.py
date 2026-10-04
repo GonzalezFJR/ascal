@@ -60,6 +60,7 @@ class CameraModel:
     width: int = 0
     height: int = 0
     meta: Dict[str, Any] = field(default_factory=dict)
+    mirror: bool = False                       # image stored mirrored (x -> width - 1 - x), e.g. FITS rows as stored
 
     # ------------------------------------------------------------------ basics
     def __post_init__(self) -> None:
@@ -140,11 +141,17 @@ class CameraModel:
         if self.decentering:
             du, dv = self._decentering(u, v)
             u, v = u + du, v + dv
-        return self.cx + u, self.cy + v
+        x = self.cx + u
+        if self.mirror:
+            x = (self.width - 1) - x
+        return x, self.cy + v
 
     def unproject(self, x: ArrayLike, y: ArrayLike) -> Tuple[np.ndarray, np.ndarray]:
         """Pixel (x, y) -> sky (alt, az in degrees)."""
-        u = np.asarray(x, float) - self.cx
+        x = np.asarray(x, float)
+        if self.mirror:
+            x = (self.width - 1) - x
+        u = x - self.cx
         v = np.asarray(y, float) - self.cy
         if self.decentering:
             u0, v0 = u.copy(), v.copy()
@@ -215,7 +222,7 @@ class CameraModel:
             "cx": float(self.cx), "cy": float(self.cy), "f": float(self.f), "psi": float(self.psi),
             "tau_x": float(self.tau_x), "tau_y": float(self.tau_y), "k": [float(v) for v in self.k],
             "p": None if self.p is None else [float(v) for v in self.p],
-            "width": int(self.width), "height": int(self.height),
+            "width": int(self.width), "height": int(self.height), "mirror": bool(self.mirror),
             "derived": {
                 "focal_length_px_per_deg": float(self.f * math.pi / 180.0),
                 "total_tilt_deg": self.total_tilt,
@@ -233,7 +240,8 @@ class CameraModel:
     def from_dict(cls, d: Dict[str, Any]) -> "CameraModel":
         return cls(cx=d["cx"], cy=d["cy"], f=d["f"], psi=d.get("psi", 0.0), tau_x=d.get("tau_x", 0.0), tau_y=d.get("tau_y", 0.0),
                    k=np.asarray(d.get("k", [-0.03, 0.0]), float), p=None if d.get("p") is None else np.asarray(d["p"], float),
-                   width=int(d.get("width", 0)), height=int(d.get("height", 0)), meta=dict(d.get("meta", {})))
+                   width=int(d.get("width", 0)), height=int(d.get("height", 0)), meta=dict(d.get("meta", {})),
+                   mirror=bool(d.get("mirror", False)))
 
     def save(self, path: Path | str) -> None:
         Path(path).write_text(json.dumps(self.to_dict(), indent=1))

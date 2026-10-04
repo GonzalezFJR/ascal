@@ -1,6 +1,10 @@
 """Command-line interface.
 
-    ascal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--fwhm auto|PX] [--decentering] [--out calib.json] [--report DIR]
+    ascal calibrate IMG [IMG ...] --lat LAT --lon LON [--elev M] [--time ISO | --tz ZONE] [--max-time S]
+                    [--parity auto|direct|mirror] [--disc CX,CY,R] [--fwhm auto|PX] [--tiles auto|N]
+                    [--no-refraction] [--decentering] [--out calib.json] [--report DIR | --no-report]
+
+IMG can be JPEG/PNG/TIFF, FITS or a camera raw file (raw needs the optional rawpy).
     ascal check calib.json IMG [IMG ...] --lat LAT --lon LON [--tz ZONE] [--report DIR]
     ascal project calib.json --alt A --az Z | --x X --y Y
     ascal web [--host 0.0.0.0] [--port 8000]
@@ -16,7 +20,7 @@ from typing import List, Optional
 
 import numpy as np
 
-from . import __version__
+from . import __version__, config
 from .bootstrap import CalibrationError, Site, calibrate, evaluate
 from .detect import load_frame
 from .model import CameraModel, band_statistics
@@ -47,10 +51,40 @@ def _fwhm_arg(value: str):
     return f
 
 
+def _tiles_arg(value: str):
+    if value == "auto":
+        return value
+    n = int(value)
+    if not 1 <= n <= 8:
+        raise argparse.ArgumentTypeError("--tiles must be 'auto' or 1-8")
+    return n
+
+
+def _disc_arg(value: str):
+    try:
+        v = [float(x) for x in value.split(",")]
+    except ValueError:
+        v = []
+    if len(v) != 3:
+        raise argparse.ArgumentTypeError("--disc must be CX,CY,R in pixels")
+    return v
+
+
+def _options(args) -> dict:
+    o = {"refraction": not getattr(args, "no_refraction", False)}
+    if getattr(args, "max_time", None) is not None:
+        o["max_time"] = args.max_time
+    if getattr(args, "parity", None):
+        o["parity"] = args.parity
+    if getattr(args, "disc", None):
+        o["disc"] = args.disc
+    return o
+
+
 def _load_frames(args, keep_image: bool = False):
     frames = []
-    # with --fwhm auto the image is kept so that calibrate() can detect again with another kernel
-    keep = keep_image or args.fwhm == "auto"
+    # the image is kept so that the calibration cascade can detect again with a wider kernel
+    keep = True
     for path, t in zip(args.images, _times(args, len(args.images))):
         fr = load_frame(path, time=t, tz=args.tz, exposure_s=args.exposure, tiles=args.tiles, keep_image=keep,
                         fwhm=args.fwhm, threshold_sigma=args.threshold, roundness=(-args.roundness, args.roundness))
@@ -67,6 +101,10 @@ def _report(result, frames, site, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     result.model.save(out_dir / "calibration.json")
     (out_dir / "summary.json").write_text(json.dumps(result.summary(), indent=1, default=float))
+    for i, fr in enumerate(frames[:3]):
+        name = "panel.png" if len(frames) == 1 else f"panel_{fr.path.stem}.png"
+        plots.calibration_panel(fr, result, site, frame_index=i, path=out_dir / name,
+                                title=f"{fr.path.name}   {fr.utc:%Y-%m-%d %H:%M:%S} UTC")
     plots.residual_plots(result, out_dir / "residuals.png")
     plots.radial_plot(result.model, out_dir / "radial.png")
     for fr in frames[:3]:
@@ -82,15 +120,28 @@ def _report(result, frames, site, out_dir: Path) -> None:
 
 
 def cmd_calibrate(args) -> int:
+    import time
     site = _site(args)
-    frames = _load_frames(args, keep_image=bool(args.report))
-    result = calibrate(frames, site, decentering=args.decentering, verbose=not args.quiet)
+    t0 = time.perf_counter()
+    with config.options(**_options(args)):
+        frames = _load_frames(args, keep_image=True)
+        budget = config.get("max_time") - (time.perf_counter() - t0)
+        try:
+            result = calibrate(frames, site, decentering=args.decentering, verbose=not args.quiet, max_time=max(budget, 1.0))
+        except CalibrationError as exc:
+            print(f"\ncalibration failed: {exc}", file=sys.stderr)
+            return 2
     s = result.summary()
+    cas = result.info.get("cascade") or {}
+    acc = cas.get("accepted") or {}
+    if acc:
+        print(f"\naccepted: disc hypothesis '{acc['disc']}', detection level {acc['detection']}, parity {cas.get('parity')}, "
+              f"radial prior {cas.get('radial_prior')}, pose margin x{acc['margin']}")
     print(f"\n{result.model}")
     print(f"total tilt {result.model.total_tilt:.2f} deg, zenith at pixel ({result.model.zenith_pixel[0]:.0f}, {result.model.zenith_pixel[1]:.0f}), "
           f"horizon radius {result.model.horizon_radius:.0f} px, {60 / float(result.model.plate_scale(0)):.2f} arcmin/px on axis")
     print(f"{s['n_pairs']} pairs, median {s['median_px']:.2f} px, rms {s['rms_px']:.2f} px, p90 {s['p90_px']:.2f} px, "
-          f"{100 * s['within_1px']:.0f}% within 1 px, {s['elapsed_s']} s")
+          f"{100 * s['within_1px']:.0f}% within 1 px, {time.perf_counter() - t0:.1f} s in total")
     for b in s["bands"]:
         if b["n"]:
             print(f"  alt {b['band']:>6}: n {b['n']:5d}  median {b['median']:.2f}  p90 {b['p90']:.2f}")
@@ -98,16 +149,17 @@ def cmd_calibrate(args) -> int:
     if out:
         result.model.save(out)
         print(f"calibration written to {out}")
-    if args.report:
-        _report(result, frames, site, Path(args.report))
+    if not args.no_report:
+        _report(result, frames, site, Path(args.report) if args.report else Path(f"{frames[0].path.stem}_ascal"))
     return 0
 
 
 def cmd_check(args) -> int:
     site = _site(args)
     model = CameraModel.load(args.calibration)
-    frames = _load_frames(args, keep_image=bool(args.report))
-    pairs = evaluate(model, frames, site, max_mag=args.max_mag, radius=args.radius)
+    with config.options(**_options(args)):
+        frames = _load_frames(args, keep_image=bool(args.report))
+        pairs = evaluate(model, frames, site, max_mag=args.max_mag, radius=args.radius)
     d = pairs.residuals(model)
     print(f"\n{len(pairs)} associations (m <= {args.max_mag}, radius {args.radius} px): median {np.median(d):.2f} px, "
           f"p90 {np.percentile(d, 90):.2f} px, {100 * np.mean(d < 1):.0f}% within 1 px")
@@ -151,14 +203,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     def site_args(p):
         p.add_argument("--lat", type=float, required=True, help="latitude, degrees north")
         p.add_argument("--lon", type=float, required=True, help="longitude, degrees east")
-        p.add_argument("--elev", type=float, default=0.0, help="elevation, metres (informational)")
+        p.add_argument("--elev", type=float, default=0.0, help="elevation, metres (sets the pressure for refraction)")
+        p.add_argument("--no-refraction", action="store_true", help="compare with geometric altitudes (0.x behaviour)")
 
     def frame_args(p):
         p.add_argument("images", nargs="+")
         p.add_argument("--time", nargs="*", help="exposure start (ISO 8601, aware or in --tz); default: EXIF or file name")
         p.add_argument("--tz", default=None, help="time zone of naive times / file names (e.g. Europe/Madrid); default UTC")
         p.add_argument("--exposure", type=float, default=None, help="exposure in seconds if not in EXIF")
-        p.add_argument("--tiles", type=int, default=1, help="detect in N x N tiles to limit memory (e.g. 2 on a Raspberry Pi)")
+        p.add_argument("--tiles", type=_tiles_arg, default="auto",
+                       help="detect in N x N tiles processed in parallel; 'auto' = 3 above 16 Mpx (use 2-3 on a Raspberry Pi to limit memory)")
         p.add_argument("--fwhm", type=_fwhm_arg, default="auto",
                        help="star-detection kernel FWHM in pixels, or 'auto' (default: 1.3 x the measured star FWHM, at least 4 px)")
         p.add_argument("--threshold", type=float, default=4.0, help="detection threshold in background sigmas (default 4)")
@@ -169,8 +223,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     frame_args(p)
     site_args(p)
     p.add_argument("--decentering", action="store_true", help="fit the Brown-Conrady decentering term (model B)")
+    p.add_argument("--max-time", type=float, default=None, help="time budget in seconds, detection included (default 40)")
+    p.add_argument("--parity", choices=("auto", "direct", "mirror"), default="auto",
+                   help="image parity: 'auto' tries both; 'mirror' for images stored left-right flipped")
+    p.add_argument("--disc", type=_disc_arg, default=None, help="sky disc CX,CY,R in pixels, when the automatic estimate fails")
     p.add_argument("--out", help="write the calibration JSON here")
-    p.add_argument("--report", help="write figures, pairs and summary to this directory")
+    p.add_argument("--report", help="directory for the report: calibration, summary, pairs and figures (default: <image>_ascal/)")
+    p.add_argument("--no-report", action="store_true", help="do not write the report")
     p.set_defaults(func=cmd_calibrate)
 
     p = sub.add_parser("check", help="score a calibration on other frames (no fitting)")

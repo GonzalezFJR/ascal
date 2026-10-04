@@ -144,6 +144,7 @@ function render(j) {
     <table>
       <tr><th>altitude band</th><th class="num">pairs</th><th class="num">median (px)</th><th class="num">p90 (px)</th><th class="num">within 1 px</th></tr>${bands}
     </table>
+    <figure><img src="data:image/png;base64,${j.figures.panel}"><figcaption>Summary: (a) frame as recorded; (b) matched stars, altitude circles at 0°, 30° and 60°, N–S and E–W lines and constellation figures; (c) altitude in the camera frame against distance to the optical centre; (d) residual against altitude.</figcaption></figure>
     <figure><img src="data:image/png;base64,${j.figures.overlay}"><figcaption>Catalogue stars (m ≤ 4.5) projected with the fitted model, altitude circles at 0°, 30° and 60°, cardinal meridians, zenith (star) and optical centre (+).</figcaption></figure>
     <figure><img src="data:image/png;base64,${j.figures.cutouts}"><figcaption>Cut-outs around bright stars: detections (circles) and predicted positions (+).</figcaption></figure>
     <figure><img src="data:image/png;base64,${j.figures.residuals}"><figcaption>Residuals against altitude, residual vectors on the sensor, and histogram.</figcaption></figure>

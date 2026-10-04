@@ -17,11 +17,12 @@ with no prior calibration, no sky mask and no manual star identification. You on
 * the site (latitude, longitude),
 * the time of the exposure (from EXIF, from the file name, or typed in).
 
-The pipeline: DAOStarFinder detections → sky-disc detection → blind search of the image rotation,
-zenith offset and focal scale against the bright stars of the Hipparcos catalogue → progressive
-association and robust least-squares fit of the camera model (Kannala–Brandt radial function +
-rigid 3-D rotation of the optical axis + image rotation + optical centre; optional Brown–Conrady
-decentering).
+The pipeline: DAOStarFinder detections → sky-disc detection → a cascade of hypotheses (sky disc, image
+parity, radial prior, detection kernel), each with a blind search of the image rotation, zenith offset and
+focal scale against the bright stars of the Hipparcos catalogue → progressive association and robust
+least-squares fit of the camera model (Kannala–Brandt radial function + rigid 3-D rotation of the optical
+axis + image rotation + optical centre; optional Brown–Conrady decentering). The cascade stops at the first
+hypothesis that passes the quality gate, within a time budget (40 s by default).
 
 To try your own image: change `IMAGE`, `SITE` and, if needed, `TZ` below.""")
 
@@ -65,10 +66,12 @@ ax.set_xticks([]); ax.set_yticks([]); plt.show()""")
 
 md("""## 2. Calibrate
 
-`calibrate` runs the blind pose search and the progressive refinement. The log shows the candidates
-of the pose search (image rotation ψ, displacement of the zenith from the disc centre, focal scale),
-validated by the number of bright stars that then match a detection, and the three association
-stages with their residuals.""")
+`calibrate` runs the cascade. For each hypothesis the log lists the best poses of the blind search for both
+parities (number of bright catalogue stars that land on a detection, focal length, image rotation ψ) and the
+refinement of the best ones, with the quality gate: matched pairs against the number required (15 % of the
+stars expected down to the frame's limiting magnitude), the margin of the best pose over its rivals, and the
+median residual. On this frame the first hypothesis (sky disc as detected, direct image, equisolid-like prior)
+is accepted.""")
 
 code("""result = calibrate([frame], SITE, decentering=False, verbose=True)
 model = result.model
@@ -79,11 +82,21 @@ print(f"total tilt {model.total_tilt:.2f}°, zenith at pixel ({model.zenith_pixe
       f"horizon radius {model.horizon_radius:.0f} px, {60/float(model.plate_scale(0)):.2f} arcmin/px on the axis, "
       f"{60/float(model.plate_scale(90)):.2f} arcmin/px at the horizon")
 print(f"{summary['n_pairs']} star–detection pairs, median residual {summary['median_px']:.2f} px, "
-      f"{100*summary['within_1px']:.0f}% within 1 px, {summary['elapsed_s']} s in total")""")
+      f"{100*summary['within_1px']:.0f}% within 1 px, {summary['elapsed_s']} s in total")
+acc = result.info["cascade"]["accepted"]
+print("accepted hypothesis:", {k: acc[k] for k in ("disc", "detection", "parity", "first_prior", "margin")})""")
 
 md("""## 3. Look at the result
 
-Catalogue stars projected with the fitted model over the frame, with the altitude circles (0°, 30°, 60°),
+The summary panel, written by the command line with every calibration (`panel.png`): (a) the frame as
+recorded; (b) the matched stars with the altitude circles at 0° (dashed), 30° and 60°, the north–south and
+east–west lines and the constellation figures, all drawn with the fitted model; (c) altitude in the camera
+frame against distance to the optical centre, for the model, an equidistant projection with the same focal
+length and the matched stars; (d) residual against altitude, with the median per 10° bin.""")
+
+code("""display(Image(plots.calibration_panel(frame, result, SITE)))""")
+
+md("""Catalogue stars projected with the fitted model over the frame, with the altitude circles (0°, 30°, 60°),
 the cardinal meridians, the zenith (star) and the optical centre (+). The camera is tilted, so the
 zenith does not coincide with the optical centre.""")
 
@@ -124,7 +137,24 @@ for p in others:
     print(f"{p.name}: {len(pairs)} associations, median {np.median(d):.2f} px, {100*np.mean(d < 1):.0f}% within 1 px; "
           f"stars brighter than mag 4: {np.median(d[bright]):.2f} px, {100*np.mean(d[bright] < 1):.0f}% within 1 px")""")
 
-md("""## 5. Save and use the calibration
+md("""## 5. Mirrored images and options
+
+Some cameras, and FITS files (origin at the bottom), store the sky mirrored. The cascade tries both parities;
+a mirrored solution is stored with `"mirror": true`, so the model always maps to the pixels of the file as
+given. Here a left–right flipped copy of the frame is calibrated. The options of the command line are
+available in Python through `ascal.config.options` (here the parity is left on `auto` and the time budget set
+to 30 s).""")
+
+code("""import dataclasses
+flipped = dataclasses.replace(frame, gray=frame.gray[:, ::-1].copy(),
+                              detections=dataclasses.replace(frame.detections, x=frame.width - 1 - frame.detections.x),
+                              disc=(frame.width - 1 - frame.disc[0], frame.disc[1], frame.disc[2]), info=dict(frame.info))
+with ascal.config.options(max_time=30, parity="auto"):
+    r_flip = calibrate([flipped], SITE, verbose=False)
+print(f"mirror = {r_flip.model.mirror}; {r_flip.summary()['n_pairs']} pairs, median {r_flip.summary()['median_px']:.2f} px")
+print(f"same camera: f {r_flip.model.f:.1f} vs {model.f:.1f} px/rad, tilt {r_flip.model.total_tilt:.2f}° vs {model.total_tilt:.2f}°")""")
+
+md("""## 6. Save and use the calibration
 
 The model is stored as a small JSON file. `project` converts sky directions to pixels and `unproject`
 pixels to sky directions; `solid_angle` gives the steradians covered by each pixel (useful to weight
@@ -146,7 +176,8 @@ md("""## Command line and web demo
 The same pipeline is available from the shell and from a drag-and-drop web page:
 
 ```bash
-ascal calibrate examples/images/2026_08_09_03_00_46.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid --out calib.json --report report/
+ascal calibrate examples/images/2026_08_09_03_00_46.jpg --lat 43.259147 --lon -6.60345 --elev 650 --tz Europe/Madrid --out calib.json
+# -> report in 2026_08_09_03_00_46_ascal/: calibration.json, summary.json, pairs.csv, panel.png and the other figures
 ascal check calib.json examples/images/2026_07_08_01_01_06.jpg --lat 43.259147 --lon -6.60345 --tz Europe/Madrid
 ascal web          # then open http://127.0.0.1:8000
 ```""")

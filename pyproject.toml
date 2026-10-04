@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ascal"
-version = "0.3.0"
+version = "1.0.0"
 description = "Zero-shot geometric calibration of all-sky (fisheye) cameras from star positions"
 readme = "README.md"
 license = {text = "MIT"}
@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+raw = ["rawpy>=0.18"]
 web = ["fastapi>=0.100", "uvicorn>=0.22", "python-multipart>=0.0.6"]
 dev = ["pytest", "jupyter", "nbconvert"]
 
@@ -32,7 +33,10 @@ ascal = "ascal.cli:main"
 include = ["ascal*"]
 
 [tool.setuptools.package-data]
-ascal = ["data/*.json", "web/static/*"]
+ascal = ["data/*.json", "data/NOTICE.md", "web/static/*"]
 
 [project.urls]
 Repository = "https://github.com/GonzalezFJR/ascal"
+
+[tool.pytest.ini_options]
+markers = ["slow: end-to-end calibrations (tens of seconds)"]

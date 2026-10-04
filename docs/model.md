@@ -78,6 +78,7 @@ three times the tangential one. Fit it only when the residual map of model A sho
 | `k` | `[k3, k5, ...]` radial coefficients |
 | `p` | `[p1, p2]` decentering (units of `f`) or `null` |
 | `width`, `height` | sensor size the parameters refer to |
+| `mirror` | `true` when the image is stored left–right mirrored: `x` is replaced by `width − 1 − x` after the projection (and before the inverse) |
 | `derived` | focal length in px/deg, total tilt, zenith pixel, horizon radius, plate scales (informational) |
 
 A crop, rotation or rescaling of the image transforms `(cx, cy)`, `f`, `psi` and `(p1, p2)` by the same
@@ -96,15 +97,23 @@ soft-L1 loss, (ii) iterative clipping per altitude band (median + 3.5 robust sig
 
 ## Zero-shot pipeline
 
-See the docstring of `ascal/bootstrap.py`: sky disc → star detection with a DAOStarFinder kernel of
-1.3 × the measured star FWHM, at least 4 px (`ascal/detect.py`, `estimate_fwhm`) → blind search of `(psi, zenith shift,
-focal scale)` against the bright stars → progressive association (mag ≤ 3.5/30 px → 4.5/25 px →
-5.5/12 px → 7 px, unique and mutual pairs) → robust fit. A single clear frame is enough. If the
-calibration fails with the automatic kernel, the detection is repeated with kernels 1.5, 2 and 0.75
-times wider. The kernel used is stored in `meta.detection_fwhm_px` of the calibration JSON.
+Version 1.0 (`ascal/fast.py`, `ascal/bootstrap.py`): sky disc → star detection with a DAOStarFinder kernel of
+1.3 × the measured star FWHM, at least 4 px (`ascal/detect.py`; Gaussian pre-smoothing when the stars are narrower
+than 2.2 px; 3 × 3 parallel tiles above 16 Mpx) → a cascade of hypotheses, stopped at the first that passes the
+gate: sky disc (as detected, sensor-inscribed and circumscribed circles, Hough circles) × parity (direct and
+mirrored, searched together) × radial prior (`k3` = −0.03, then +0.04 and 0 when the pose is unambiguous) ×
+detection kernel (1, 1.5 and 2 times the first). For each hypothesis the pose `(psi, zenith shift, focal scale)` is
+searched blindly on a distance map of the detections; the best poses are refined by progressive association
+(mag ≤ 4.5/25 px → 5.5/12 px → 7 px, radii scaled with `f / 1005 px/rad`, unique and mutual pairs) and the robust
+fit. Gate: median residual ≤ 1.2 px (2 px for ≥ 100 pairs and a pose margin ≥ 3), ≥ 30 pairs, and either 15 % of the
+stars expected down to the frame's limiting magnitude or a pose margin ≥ 2. The time budget (`max_time`, 40 s) is
+checked between steps. The accepted hypothesis is stored in `summary.json` (`cascade.accepted`) and the kernel in
+`meta.detection_fwhm_px` of the calibration JSON.
 
 ## Reference positions
 
 Hipparcos stars to magnitude 6.5 (8789), precessed from J2000 to the date (IAU 1976), local
 apparent sidereal time from the Julian date (with the equation of the equinoxes), geometric
-altitude (no refraction: the radial function absorbs the mean refraction, ≈ 1–2 px at 10°).
+altitude, corrected to apparent altitude with Saemundsson's (1986) refraction formula scaled to the pressure at the
+site elevation (disable with `--no-refraction` / `config.options(refraction=False)`, the 0.x behaviour, in which the
+radial function absorbed the mean refraction, ≈ 1–2 px at 10°).
