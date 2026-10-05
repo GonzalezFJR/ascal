@@ -12,13 +12,13 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand">
+  <a class="brand" href="https://lumaria.allandestars.com/ascal" aria-label="ascal home">
     <img class="logo" src="static/logo.svg" alt="" width="34" height="33">
     <div>
       <strong>ascal</strong><span class="ver" id="version"></span>
       <small>Automatic astrometric calibration of all-sky cameras</small>
     </div>
-  </div>
+  </a>
   <nav>
     <a href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener">Paper</a>
     <a href="https://github.com/GonzalezFJR/ascal" target="_blank" rel="noopener">Code</a>
@@ -38,7 +38,7 @@
         camera raw. The calibration can fail if too few stars are visible, if there are clouds, or if the dome or lens is
         dirty or covered with water drops.</p>
       <button type="button" class="examples-toggle" id="examples-toggle" hidden aria-expanded="false" aria-controls="examples">
-        <span>No image at hand? <b>Explore <span id="n-examples">8</span> precomputed examples</b> from professional and network cameras</span>
+        <span>No image at hand? <b>Take a look at some examples</b></span>
         <span class="chev" aria-hidden="true">▾</span>
       </button>
     </div>
@@ -192,15 +192,11 @@
 </main>
 
 <footer>
-  <a class="paper-cite" href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener">
-    <span class="paper-label">Paper</span>
-    <span><b>Automatic astrometric calibration of low-cost all-sky cameras</b><br>
-    J. R. González Fernández, L. Hermosa Muñoz, M. Fernández Alonso, L. González Cuesta · arXiv:2609.15724 (2026).
-    Submitted to The Open Journal of Astrophysics.</span>
-  </a>
   <p><b>ascal</b> is the calibration software of the <a href="https://lumaria.allandestars.com" target="_blank" rel="noopener">Lumaria</a>
-    light-pollution monitoring network (Allande Stars). Star positions from Hipparcos (ESA 1997); constellation figures
-    from d3-celestial (O. Frohn).</p>
+    light-pollution monitoring network (Allande Stars). Method: J. R. González Fernández, L. Hermosa Muñoz, M. Fernández Alonso,
+    L. González Cuesta, <a class="paper-link" href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener"><i>Automatic
+    astrometric calibration of low-cost all-sky cameras</i>, arXiv:2609.15724</a> (2026). Submitted to The Open Journal of Astrophysics.
+    Star positions from Hipparcos (ESA 1997); constellation figures from d3-celestial (O. Frohn).</p>
 </footer>
 </body>
 </html>

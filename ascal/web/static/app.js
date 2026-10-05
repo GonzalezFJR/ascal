@@ -98,7 +98,6 @@
   // ---------------------------------------------------------------- precomputed examples
   function buildExamples(list) {
     if (!list.length) return;
-    $("n-examples").textContent = list.length;
     $("examples-toggle").hidden = false;
     $("example-cards").innerHTML = list.map((e) => `<button type="button" class="ex-card" data-id="${esc(e.id)}">
         <img src="api/examples/${encodeURIComponent(e.id)}/thumb.jpg" alt="" loading="lazy" width="360" height="360">
@@ -114,7 +113,7 @@
 
   async function openExample(e) {
     showProgress();
-    $("progress-title").textContent = "Loading…"; $("progress-sub").textContent = `${e.title} · precomputed example`;
+    $("progress-title").textContent = "Loading…"; $("progress-sub").textContent = `${e.title} · example`;
     $("log").hidden = true;
     history.replaceState(null, "", "#example=" + e.id);
     const base = `api/examples/${encodeURIComponent(e.id)}`;
@@ -257,7 +256,7 @@
       const e = s.example;
       $("result-title").textContent = e ? `${e.title} — ${e.place}` : R.original_name;
       $("result-sub").innerHTML = esc(`${R.frame.utc_mid.replace("T", " ").slice(0, 19)} UTC (mid-exposure) · ${fmt(R.site.lat, 4)}°, ${fmt(R.site.lon, 4)}° · `
-        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px`) + (e ? " · precomputed example" : "");
+        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px`) + (e ? " · example" : "");
       $("ex-meta").hidden = !e;
       $("expiry-note").hidden = !!e;
       if (!e) $("expiry-note").textContent = `Your image has already been deleted from the server. These results will be deleted in `
