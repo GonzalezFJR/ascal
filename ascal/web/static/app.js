@@ -88,22 +88,45 @@
       $("ttl").textContent = Math.round(S.cfg.ttl_h);
       $("max-time").max = S.cfg.max_time;
       $("formats").textContent = "JPEG, PNG, TIFF, FITS, camera raw · up to " + Math.round(S.cfg.max_mb) + " MB";
-      if (S.cfg.examples && S.cfg.examples.length) {
-        $("examples").hidden = false;
-        S.cfg.examples.forEach((e) => {
-          const b = document.createElement("button"); b.type = "button";
-          b.innerHTML = `${esc(e.title)}<small>${esc(e.credit || "")}</small>`;
-          b.addEventListener("click", () => useExample(e));
-          $("example-buttons").appendChild(b);
-        });
-      }
+      $("elev").min = S.cfg.elev_range[0]; $("elev").max = S.cfg.elev_range[1];
+      buildExamples(S.cfg.examples || []);
     } catch (_) { status("Cannot reach the server.", true); }
-    const m = location.hash.match(/job=([A-Za-z0-9_-]+)/);
+    const m = location.hash.match(/job=([A-Za-z0-9_-]+)/), x = location.hash.match(/example=([A-Za-z0-9_-]+)/);
     if (m) { showProgress(); follow(m[1]); }
+    else if (x) { const e = (S.cfg?.examples || []).find((q) => q.id === x[1]); if (e) openExample(e); }
+  }
+
+  // ---------------------------------------------------------------- precomputed examples
+  function buildExamples(list) {
+    if (!list.length) return;
+    $("n-examples").textContent = list.length;
+    $("examples-toggle").hidden = false;
+    $("example-cards").innerHTML = list.map((e) => `<button type="button" class="ex-card" data-id="${esc(e.id)}">
+        <img src="api/examples/${encodeURIComponent(e.id)}/thumb.jpg" alt="" loading="lazy" width="360" height="360">
+        <span class="ex-body"><strong>${esc(e.title)}</strong><span>${esc(e.place)}</span>
+        <span>${esc(e.camera)} · ${esc(e.format)}</span><span>${esc(e.operator)}</span></span></button>`).join("");
+    $("example-cards").querySelectorAll(".ex-card").forEach((b) => b.addEventListener("click", () => openExample(list.find((e) => e.id === b.dataset.id))));
+  }
+  $("examples-toggle").addEventListener("click", () => {
+    const open = $("examples").hidden;
+    $("examples").hidden = !open; $("examples-toggle").setAttribute("aria-expanded", String(open));
+    if (open) $("examples").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  async function openExample(e) {
+    showProgress();
+    $("progress-title").textContent = "Loading…"; $("progress-sub").textContent = `${e.title} · precomputed example`;
+    $("log").hidden = true;
+    history.replaceState(null, "", "#example=" + e.id);
+    const base = `api/examples/${encodeURIComponent(e.id)}`;
+    const wait = new Promise((r) => setTimeout(r, 2200));
+    let log = "";
+    try { log = await (await fetch(`${base}/log.txt`)).text(); } catch (_) { /* optional */ }
+    await loadResult(base, { log: log.split("\n").filter(Boolean), example: e }, wait);
   }
 
   function setFile(f) {
-    S.file = f; S.example = null;
+    S.file = f;
     $("drop").classList.add("set");
     $("drop-title").textContent = f.name;
     $("drop-sub").textContent = (f.size / 1e6).toFixed(1) + " MB · click to change";
@@ -124,16 +147,6 @@
     }).catch(() => { $("time-hint").textContent = ""; });
   }
 
-  function useExample(e) {
-    S.example = e.id; S.file = null;
-    $("drop").classList.add("set");
-    $("drop-title").textContent = e.title; $("drop-sub").textContent = "example image";
-    $("utc").value = e.utc.slice(0, 19).replace("T", " "); $("lat").value = e.lat; $("lon").value = e.lon; $("elev").value = e.elev || 0;
-    $("exposure").value = e.exposure ?? "";
-    $("time-hint").className = "hint"; $("time-hint").textContent = "";
-    $("form").requestSubmit();
-  }
-
   const drop = $("drop"), fileIn = $("file");
   drop.addEventListener("click", () => fileIn.click());
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileIn.click(); } });
@@ -151,17 +164,25 @@
 
   $("form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!S.file && !S.example) return status("Choose an image first.", true);
+    if (!S.file) return status("Choose an image first.", true);
     for (const id of ["utc", "lat", "lon"]) if (!$(id).value) { $(id).focus(); return status("Fill in the UTC time, latitude and longitude.", true); }
     const tm = $("utc").value.trim().replace("Z", "").match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2}(\.\d+)?)?$/);
-    if (!tm) { $("utc").focus(); return status("Write the UTC time as YYYY-MM-DD HH:MM:SS.", true); }
+    if (!tm || Number.isNaN(Date.parse(`${tm[1]}T${tm[2]}Z`))) { $("utc").focus(); return status("Write the UTC time as YYYY-MM-DD hh:mm:ss.", true); }
+    const el = +($("elev").value || 0), [e0, e1] = S.cfg?.elev_range || [-450, 6000];
+    if (!(el >= e0 && el <= e1)) { $("elev").focus(); return status(`The elevation must be between ${e0} and ${e1} m.`, true); }
+    const lat = +$("lat").value, lon = +$("lon").value;
+    if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 360)) return status("Latitude must be within ±90° and longitude within ±180°.", true);
+    const kw = ($("fwhm").value || "auto").trim().toLowerCase(), [k0, k1] = S.cfg?.fwhm_range || [1.5, 15];
+    if (kw !== "auto" && !(+kw >= k0 && +kw <= k1)) { $("fwhm").focus(); return status(`The detection kernel must be "auto" or between ${k0} and ${k1} px.`, true); }
+    const mt = +($("max-time").value || 40), mtx = S.cfg?.max_time || 180;
+    if (!(mt >= 10 && mt <= mtx)) { $("max-time").focus(); return status(`The search time budget must be between 10 and ${mtx} s.`, true); }
     const fd = new FormData();
-    if (S.example) fd.append("example", S.example); else fd.append("image", S.file);
+    fd.append("image", S.file);
     fd.append("utc", `${tm[1]}T${tm[2]}${tm[3] || ":00"}`);
     fd.append("lat", $("lat").value); fd.append("lon", $("lon").value); fd.append("elev", $("elev").value || 0);
     if ($("exposure").value) fd.append("exposure", $("exposure").value);
-    fd.append("max_time", $("max-time").value || 40); fd.append("parity", $("parity").value); fd.append("fwhm", ($("fwhm").value || "auto").trim());
-    $("submit").disabled = true; status(S.file ? "Uploading…" : "Starting…");
+    fd.append("max_time", $("max-time").value || 40); fd.append("parity", $("parity").value); fd.append("fwhm", kw);
+    $("submit").disabled = true; status("Uploading…");
     try {
       const r = await fetch("api/jobs", { method: "POST", body: fd });
       const j = await r.json().catch(() => ({}));
@@ -174,7 +195,7 @@
   function showProgress() {
     $("progress").hidden = false; $("spinner").className = "spinner"; $("new-1").hidden = true;
     $("progress-title").textContent = "Waiting…"; $("progress-sub").textContent = ""; $("log").textContent = "";
-    $("progress").querySelector(".error-box")?.remove();
+    $("progress").querySelector(".error-box")?.remove(); $("log").hidden = false;
     $("form-card").hidden = true; $("viewer-wrap").hidden = true; $("results").hidden = true;
     window.scrollTo({ top: 0 });
   }
@@ -191,7 +212,7 @@
       $("log").textContent = (s.log || []).join("\n"); $("log").scrollTop = 1e9;
       if (s.state === "queued") { $("progress-title").textContent = `In the queue (position ${s.position})`; $("progress-sub").textContent = s.name; }
       if (s.state === "running") { $("progress-title").textContent = `Calibrating ${s.name}`; $("progress-sub").textContent = `${fmt(s.elapsed_s, 0)} s`; }
-      if (s.state === "done") return loadResult(id, s);
+      if (s.state === "done") return loadResult(`api/jobs/${id}`, s);
       if (s.state === "error") return failed(s.error || {}, s);
       S.poll = setTimeout(tick, 1000);
     };
@@ -223,9 +244,10 @@
   });
 
   // ---------------------------------------------------------------- result
-  async function loadResult(id, s) {
-    $("progress-title").textContent = "Loading the result…";
-    const R = await (await fetch(`api/jobs/${id}/result.json`)).json();
+  async function loadResult(base, s, wait) {
+    if (!s.example) $("progress-title").textContent = "Loading the result…";
+    const R = await (await fetch(`${base}/result.json`)).json();
+    if (wait) await wait;
     S.R = R; S.model = new CameraModel(R.model); S.W = R.frame.width; S.H = R.frame.height;
     const img = new Image();
     img.onload = () => {
@@ -233,15 +255,20 @@
       $("progress").hidden = true; $("viewer-wrap").hidden = false; $("results").hidden = false;
       $("result-title").textContent = R.original_name;
       const sm = R.summary;
-      $("result-sub").textContent = `${R.frame.utc_mid.replace("T", " ").slice(0, 19)} UTC (mid-exposure) · ${fmt(R.site.lat, 4)}°, ${fmt(R.site.lon, 4)}° · `
-        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px · result kept for ${fmt(s.expires_in_h, 1)} h`;
+      const e = s.example;
+      $("result-title").textContent = e ? `${e.title} — ${e.place}` : R.original_name;
+      $("result-sub").innerHTML = esc(`${R.frame.utc_mid.replace("T", " ").slice(0, 19)} UTC (mid-exposure) · ${fmt(R.site.lat, 4)}°, ${fmt(R.site.lon, 4)}° · `
+        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px · `) + (e ? "precomputed example" : esc(`result kept for ${fmt(s.expires_in_h, 1)} h`));
+      $("ex-meta").hidden = !e;
+      if (e) $("ex-meta").innerHTML = `<b>${esc(e.operator)}</b> · ${esc(e.site)} · ${esc(e.camera)}, ${esc(e.lens)} · ${esc(e.format)}, `
+        + `${esc(String(e.exposure))} s · ${esc(e.description)} Data: <a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(e.source)}</a> (${esc(e.credit)}).`;
       $("log-final").textContent = (s.log || []).join("\n");
-      $("exp-cal").href = `api/jobs/${id}/calibration.json`;
-      $("exp-csv").href = `api/jobs/${id}/pairs.csv`;
-      $("exp-panel").href = `api/jobs/${id}/panel.png`;
+      $("exp-cal").href = `${base}/calibration.json`;
+      $("exp-csv").href = `${base}/pairs.csv`;
+      $("exp-panel").href = `${base}/panel.png`;
       buildLayers(); resize(); fitView(); renderTables(); renderCharts();
     };
-    img.src = `api/jobs/${id}/display.jpg`;
+    img.src = `${base}/display.jpg`;
   }
 
   // ---------------------------------------------------------------- viewer
@@ -516,8 +543,10 @@
   const AX = { axisLine: { lineStyle: { color: "#555c66" } }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.07)" } },
                axisLabel: { color: "#aab0ba" }, nameTextStyle: { color: "#aab0ba" }, nameLocation: "middle" };
   const BASE = { backgroundColor: "transparent", textStyle: { color: "#d6d9de", fontFamily: "system-ui, sans-serif" },
-                 grid: { left: 62, right: 22, top: 40, bottom: 52 }, legend: { top: 4, textStyle: { color: "#c6cad1", fontSize: 11 } },
-                 toolbox: { right: 6, top: 0, feature: { dataZoom: { title: { zoom: "zoom", back: "reset" } }, restore: { title: "restore" }, saveAsImage: { title: "save", backgroundColor: "#161b22" } }, iconStyle: { borderColor: "#8b8d97" } },
+                 grid: { left: 62, right: 22, top: 48, bottom: 52 },
+                 legend: { type: "scroll", top: 2, left: 4, right: 118, itemGap: 12, textStyle: { color: "#c6cad1", fontSize: 11 },
+                           pageIconColor: "#f4a948", pageTextStyle: { color: "#aab0ba" } },
+                 toolbox: { right: 4, top: 0, itemSize: 14, itemGap: 8, feature: { dataZoom: { title: { zoom: "zoom", back: "reset" } }, restore: { title: "restore" }, saveAsImage: { title: "save", backgroundColor: "#161b22" } }, iconStyle: { borderColor: "#8b8d97" } },
                  dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "none" }, { type: "inside", yAxisIndex: 0, filterMode: "none" }],
                  animation: false };
   const starTip = (p) => `<b>${esc(p.name || "HIP " + p.hip)}</b><br>mag ${fmt(p.mag)} · alt ${fmt(p.alt)}° · az ${fmt(p.az)}°<br>residual ${fmt(p.res)} px`;
@@ -530,6 +559,7 @@
     ch.setOption(Object.assign({}, BASE, option));
     if (onClick) ch.on("click", onClick);
     S.charts.push(ch);
+    if (window.ResizeObserver) new ResizeObserver(() => ch.resize()).observe(card.querySelector(".chart"));
   }
   const focusPair = (p) => { if (!p) return; S.focus = [p.x, p.y]; centreOn(p.x, p.y, Math.max(S.fit * 6, 1)); $("viewer-wrap").scrollIntoView({ behavior: "smooth" }); };
   const clickPair = (e) => focusPair(e.data && e.data.p);
@@ -546,7 +576,7 @@
 
     chart("Projection: altitude vs radius", "Altitude in the camera frame (tilt removed) against distance to the optical centre, for the fitted model, the ideal fisheye projections with the same focal length, and the matched stars.", {
       tooltip: tipItem,
-      xAxis: { ...AX, type: "value", name: "distance to the optical centre (px)", nameGap: 30, min: 0, max: Math.round(rmax) },
+      xAxis: { ...AX, type: "value", name: "distance to the optical centre (px)", nameGap: 30, min: 0, max: Math.ceil(rmax / 100) * 100 },
       yAxis: { ...AX, type: "value", name: "altitude in the camera frame (°)", nameGap: 40, min: 0, max: 90 },
       series: [
         { name: "matched stars", type: "scatter", symbolSize: 4, data: inl.map((p) => pt(p, p.r, p.alt_cam)), itemStyle: { color: "#4da3ff", opacity: 0.6 }, z: 3 },
@@ -570,7 +600,7 @@
 
     const k = 100;
     chart("Residual vectors on the sensor", `Each arrow goes from the predicted to the detected position, magnified ×${k} and coloured by the residual. Systematic patterns would reveal a missing term of the model.`, {
-      tooltip: tipItem, grid: { left: 62, right: 70, top: 40, bottom: 52 },
+      tooltip: tipItem, grid: { left: 62, right: 70, top: 48, bottom: 52 },
       xAxis: { ...AX, type: "value", name: "x (px)", nameGap: 30, min: 0, max: R.frame.width },
       yAxis: { ...AX, type: "value", name: "y (px)", nameGap: 44, min: 0, max: R.frame.height, inverse: true },
       visualMap: { type: "continuous", min: 0, max: +top.toFixed(1), dimension: 2, seriesIndex: [1], right: 4, top: 50, itemHeight: 140, calculable: false,
@@ -625,7 +655,7 @@
         { name: "median", type: "bar", data: bands.map((b) => b.median), itemStyle: { color: "#4da3ff" } },
         { name: "p90", type: "bar", data: bands.map((b) => b.p90), itemStyle: { color: "#f4a948" } },
       ] });
-    window.addEventListener("resize", () => S.charts.forEach((c) => c.resize()));
+    requestAnimationFrame(() => S.charts.forEach((c) => c.resize()));
   }
 
   const RAMP = ["#2563eb", "#22d3ee", "#facc15", "#f43f5e"];
@@ -638,6 +668,91 @@
   }
 
   function percentile(a, q) { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor((q / 100) * s.length))]; }
+
+  // ---------------------------------------------------------------- date-time picker (UTC)
+  const DTP = { open: false, y: 0, m: 0, sel: null, hh: 0, mm: 0, ss: 0 };
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const pad = (n) => String(n).padStart(2, "0");
+
+  function readField() {
+    const t = $("utc").value.trim().replace("Z", "").match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (t) return { y: +t[1], m: +t[2] - 1, d: +t[3], hh: +(t[4] || 0), mm: +(t[5] || 0), ss: +(t[6] || 0) };
+    const n = new Date();
+    return { y: n.getUTCFullYear(), m: n.getUTCMonth(), d: n.getUTCDate(), hh: 0, mm: 0, ss: 0, empty: true };
+  }
+  function writeField() {
+    if (!DTP.sel) return;
+    const keep = $("utc").value.match(/(:\d{2})(\.\d+)/);       // keep fractional seconds typed by hand
+    $("utc").value = `${DTP.sel.y}-${pad(DTP.sel.m + 1)}-${pad(DTP.sel.d)} ${pad(DTP.hh)}:${pad(DTP.mm)}:${pad(DTP.ss)}`
+      + (keep && +keep[1].slice(1) === DTP.ss ? keep[2] : "");
+  }
+  function dial(id, label, max) {
+    return `<div class="dial"><button type="button" data-d="${id}" data-s="1" aria-label="${label} up">▲</button>`
+      + `<input type="text" inputmode="numeric" maxlength="2" id="dtp-${id}" aria-label="${label}" value="${pad(DTP[id])}" data-max="${max}">`
+      + `<button type="button" data-d="${id}" data-s="-1" aria-label="${label} down">▼</button><small>${label}</small></div>`;
+  }
+  function renderDtp() {
+    const el = $("dtp"), first = new Date(Date.UTC(DTP.y, DTP.m, 1)), start = (first.getUTCDay() + 6) % 7;
+    const today = new Date(), cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(Date.UTC(DTP.y, DTP.m, 1 - start + i));
+      const cls = [d.getUTCMonth() !== DTP.m ? "other" : "",
+        DTP.sel && d.getUTCFullYear() === DTP.sel.y && d.getUTCMonth() === DTP.sel.m && d.getUTCDate() === DTP.sel.d ? "sel" : "",
+        d.toISOString().slice(0, 10) === today.toISOString().slice(0, 10) ? "today" : ""].join(" ");
+      cells.push(`<button type="button" class="${cls}" data-ymd="${d.toISOString().slice(0, 10)}">${d.getUTCDate()}</button>`);
+    }
+    el.innerHTML = `<div class="dtp-head"><button type="button" data-nav="-1" aria-label="Previous month">‹</button>
+        <select id="dtp-month" aria-label="Month">${MONTHS.map((n, i) => `<option value="${i}" ${i === DTP.m ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <input type="number" id="dtp-year" aria-label="Year" min="1990" max="2100" value="${DTP.y}">
+        <button type="button" data-nav="1" aria-label="Next month">›</button></div>
+      <div class="dtp-grid">${["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((d) => `<span class="dow">${d}</span>`).join("")}${cells.join("")}</div>
+      <div class="dtp-time">${dial("hh", "hour", 23)}<span class="sep">:</span>${dial("mm", "min", 59)}<span class="sep">:</span>${dial("ss", "sec", 59)}</div>
+      <div class="dtp-foot"><button type="button" id="dtp-now">Now (UTC)</button><button type="button" id="dtp-done" class="primary">Done</button></div>`;
+  }
+  function openDtp() {
+    const f = readField();
+    Object.assign(DTP, { open: true, y: f.y, m: f.m, hh: f.hh, mm: f.mm, ss: f.ss, sel: f.empty ? null : { y: f.y, m: f.m, d: f.d } });
+    renderDtp(); $("dtp").hidden = false;
+  }
+  const closeDtp = () => { DTP.open = false; $("dtp").hidden = true; };
+  function setDial(id, v) {
+    const max = id === "hh" ? 23 : 59;
+    DTP[id] = ((Math.round(v) % (max + 1)) + max + 1) % (max + 1);
+    const inp = $("dtp-" + id); if (inp) inp.value = pad(DTP[id]);
+    if (!DTP.sel) DTP.sel = { y: DTP.y, m: DTP.m, d: 1 };
+    writeField();
+  }
+  $("dt-open").addEventListener("click", () => (DTP.open ? closeDtp() : openDtp()));
+  $("dtp").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.nav) { DTP.m += +b.dataset.nav; if (DTP.m < 0) { DTP.m = 11; DTP.y--; } if (DTP.m > 11) { DTP.m = 0; DTP.y++; } renderDtp(); }
+    else if (b.dataset.ymd) { const [y, m, d] = b.dataset.ymd.split("-").map(Number); DTP.sel = { y, m: m - 1, d }; DTP.y = y; DTP.m = m - 1; writeField(); renderDtp(); }
+    else if (b.dataset.d) setDial(b.dataset.d, DTP[b.dataset.d] + +b.dataset.s);
+    else if (b.id === "dtp-now") { const n = new Date(); DTP.sel = { y: n.getUTCFullYear(), m: n.getUTCMonth(), d: n.getUTCDate() }; DTP.y = DTP.sel.y; DTP.m = DTP.sel.m; DTP.hh = n.getUTCHours(); DTP.mm = n.getUTCMinutes(); DTP.ss = n.getUTCSeconds(); writeField(); renderDtp(); }
+    else if (b.id === "dtp-done") closeDtp();
+  });
+  $("dtp").addEventListener("change", (e) => {
+    if (e.target.id === "dtp-month") { DTP.m = +e.target.value; renderDtp(); }
+    if (e.target.id === "dtp-year") { DTP.y = Math.max(1990, Math.min(2100, +e.target.value || DTP.y)); renderDtp(); }
+  });
+  $("dtp").addEventListener("input", (e) => {
+    const id = e.target.id && e.target.id.startsWith("dtp-") ? e.target.id.slice(4) : null;
+    if (["hh", "mm", "ss"].includes(id) && /^\d{1,2}$/.test(e.target.value)) {
+      const v = +e.target.value, max = +e.target.dataset.max;
+      if (v <= max) { DTP[id] = v; if (!DTP.sel) DTP.sel = { y: DTP.y, m: DTP.m, d: 1 }; writeField(); }
+    }
+  });
+  $("dtp").addEventListener("wheel", (e) => {
+    const inp = e.target.closest(".dial")?.querySelector("input"); if (!inp) return;
+    e.preventDefault(); setDial(inp.id.slice(4), DTP[inp.id.slice(4)] + (e.deltaY < 0 ? 1 : -1));
+  }, { passive: false });
+  $("dtp").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeDtp(); $("dt-open").focus(); }
+    const id = e.target.id && e.target.id.slice(4);
+    if (["hh", "mm", "ss"].includes(id) && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); setDial(id, DTP[id] + (e.key === "ArrowUp" ? 1 : -1)); }
+  });
+  document.addEventListener("pointerdown", (e) => { if (DTP.open && !e.target.closest(".dt-field")) closeDtp(); });
+  $("utc").addEventListener("input", () => { if (DTP.open) openDtp(); });
 
   init();
 })();

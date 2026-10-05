@@ -35,11 +35,7 @@ b, strong { font-weight: 600; }
 .brand strong { font-size: 1.15rem; letter-spacing: 0.02em; }
 .brand small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: -2px; }
 .brand .ver { color: var(--muted); font-size: 0.75rem; margin-left: 0.4rem; }
-.logo {
-  width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--accent); flex: none;
-  background: radial-gradient(circle at 35% 38%, #e4e4e7 0 1.5px, transparent 2px), radial-gradient(circle at 64% 28%, #e4e4e7 0 1.2px, transparent 1.7px),
-              radial-gradient(circle at 70% 62%, #e4e4e7 0 1.7px, transparent 2.2px), radial-gradient(circle at 40% 72%, #e4e4e7 0 1px, transparent 1.5px), #0d1117;
-}
+.logo { width: 34px; height: auto; flex: none; display: block; }
 .top nav { display: flex; gap: 1.1rem; font-size: 0.9rem; }
 .top nav a { color: var(--text); opacity: 0.85; }
 main { padding: clamp(12px, 2.5vw, 28px) clamp(16px, 3vw, 32px) 2rem; max-width: 1680px; margin: 0 auto; }
@@ -52,10 +48,6 @@ footer p { margin: 0.3rem 0; }
 @media (max-width: 900px) { .intro { grid-template-columns: 1fr; gap: 1.2rem; } }
 .intro h1 { font-size: clamp(1.35rem, 2.4vw, 1.9rem); line-height: 1.2; margin: 0.2rem 0 0.8rem; }
 .intro p { margin: 0 0 0.8rem; }
-.examples { margin-top: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
-#example-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-#example-buttons button { text-align: left; }
-#example-buttons small { display: block; color: var(--muted); font-size: 0.72rem; }
 
 form { display: flex; flex-direction: column; gap: 0.7rem; }
 .drop {
@@ -172,9 +164,66 @@ tr:last-child td, tr:last-child th { border-bottom: none; }
 td small { color: var(--muted); }
 h2.section { font-size: 1.15rem; margin: 1.6rem 0 0.2rem; }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 0.8rem; margin-top: 0.7rem; }
-.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 0.8rem 0.4rem; }
+.chart-card { min-width: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 0.8rem 0.4rem; }
 .chart-card h3 { margin: 0 0.3rem 0.1rem; font-size: 0.92rem; }
 .chart-card p { margin: 0 0.3rem 0.3rem; font-size: 0.76rem; color: var(--muted); }
 .chart { width: 100%; height: 380px; }
 .logbox { margin-top: 1rem; }
 .logbox summary { cursor: pointer; }
+
+.paper { font-size: 0.88rem; }
+.chart { min-width: 0; }
+
+/* examples */
+.examples-toggle {
+  margin-top: 0.6rem; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+  text-align: left; padding: 0.75rem 0.9rem; background: var(--accent-soft); border: 1px solid rgba(244, 169, 72, 0.4);
+}
+.examples-toggle b { color: var(--accent); }
+.examples-toggle .chev { transition: transform 0.2s; color: var(--accent); }
+.examples-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.examples { grid-column: 1 / -1; }
+.examples-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.8rem; }
+@media (max-width: 1000px) { .examples-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ex-card {
+  display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px; transition: border-color 0.15s, transform 0.15s;
+}
+.ex-card:hover, .ex-card:focus-visible { border-color: var(--accent); transform: translateY(-2px); outline: none; }
+.ex-card img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #000; }
+.ex-card .ex-body { padding: 0.6rem 0.7rem 0.7rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.ex-card strong { font-size: 0.9rem; }
+.ex-card span { font-size: 0.76rem; color: var(--muted); line-height: 1.35; }
+.ex-card .ex-stats { color: var(--text); font-variant-numeric: tabular-nums; margin-top: 0.15rem; }
+.ex-meta { font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0 0; }
+.ex-meta b { color: var(--text); }
+
+/* date-time picker */
+.dt-field { position: relative; }
+.dt-field > label { color: var(--muted); }
+.dt-input { display: flex; gap: 0.35rem; }
+.dt-btn { padding: 0 0.6rem; display: flex; align-items: center; color: var(--accent); }
+.dtp {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 300px; background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: 10px; padding: 0.7rem; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+.dtp-head { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem; }
+.dtp-head select, .dtp-head input { padding: 0.25rem 0.35rem; font-size: 0.85rem; }
+.dtp-head select { flex: 1.3; }
+.dtp-head input { flex: 1; }
+.dtp-head button { padding: 0.25rem 0.5rem; }
+.dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.dtp-grid .dow { font-size: 0.68rem; color: var(--muted); padding: 0.15rem 0; }
+.dtp-grid button { padding: 0.32rem 0; font-size: 0.82rem; border-radius: 6px; border-color: transparent; background: transparent; }
+.dtp-grid button:hover { border-color: var(--accent); }
+.dtp-grid button.other { color: #5c626c; }
+.dtp-grid button.sel { background: var(--accent); color: #1a1205; font-weight: 600; }
+.dtp-grid button.today { border-color: rgba(244, 169, 72, 0.45); }
+.dtp-time { display: flex; align-items: center; justify-content: center; gap: 0.3rem; margin: 0.7rem 0 0.5rem; }
+.dtp-time .sep { font-size: 1.2rem; color: var(--muted); }
+.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dial button { padding: 0 0.7rem; line-height: 1.2; font-size: 0.7rem; }
+.dial input { width: 3.1rem; text-align: center; font: 600 1.05rem ui-monospace, Menlo, Consolas, monospace; padding: 0.3rem 0; }
+.dial small { font-size: 0.65rem; color: var(--muted); }
+.dtp-foot { display: flex; justify-content: space-between; gap: 0.4rem; }
+.dtp-foot button { font-size: 0.8rem; padding: 0.35rem 0.7rem; }

@@ -11,9 +11,9 @@ ASCAL_WEB_MAX_MB        largest upload in MB (150)
 ASCAL_WEB_MAX_QUEUE     jobs waiting at most (8)
 ASCAL_WEB_RATE          jobs per client IP and hour (20)
 ASCAL_WEB_TTL_H         hours a job is kept (6)
-ASCAL_WEB_MAX_TIME      largest time budget a user may ask for, s (90)
+ASCAL_WEB_MAX_TIME      largest search time a user may ask for, s (180)
 ASCAL_WEB_TRUST_PROXY   "1": take the client IP from X-Real-IP / X-Forwarded-For (behind a proxy)
-ASCAL_WEB_EXAMPLES      directory with example frames and an examples.json (default: the repository examples, if any)
+ASCAL_WEB_EXAMPLES      directory with examples.json and precomputed/<id>/ (deploy/precompute_examples.py)
 """
 from __future__ import annotations
 
@@ -45,12 +45,16 @@ MAX_MB = float(os.environ.get("ASCAL_WEB_MAX_MB", "150"))
 MAX_QUEUE = int(os.environ.get("ASCAL_WEB_MAX_QUEUE", "8"))
 RATE = int(os.environ.get("ASCAL_WEB_RATE", "20"))
 TTL = float(os.environ.get("ASCAL_WEB_TTL_H", "6")) * 3600
-MAX_TIME = float(os.environ.get("ASCAL_WEB_MAX_TIME", "90"))
+MAX_TIME = float(os.environ.get("ASCAL_WEB_MAX_TIME", "180"))
 TRUST_PROXY = os.environ.get("ASCAL_WEB_TRUST_PROXY", "0") == "1"
 _repo_examples = Path(__file__).resolve().parents[2] / "examples" / "web"
 EXAMPLES = Path(os.environ.get("ASCAL_WEB_EXAMPLES", _repo_examples))
 FORMATS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".fits", ".fit", ".fts", ".fits.gz", ".fit.gz", ".fts.gz",
            ".nef", ".cr2", ".cr3", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw")
+EXAMPLE_FILES = {"display.jpg": "image/jpeg", "thumb.jpg": "image/jpeg", "calibration.json": "application/json",
+                 "pairs.csv": "text/csv", "panel.png": "image/png", "result.json": "application/json", "log.txt": "text/plain"}
+ELEV = (-450.0, 6000.0)
+FWHM = (1.5, 15.0)
 FILES = {"display.jpg": "image/jpeg", "calibration.json": "application/json", "pairs.csv": "text/csv",
          "panel.png": "image/png", "result.json": "application/json"}
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{16,40}$")
@@ -84,11 +88,12 @@ def _client_ip(request: Request) -> str:
 
 
 def _examples() -> list:
+    """Examples with precomputed results (precomputed/<id>/result.json)."""
     try:
         items = json.loads((EXAMPLES / "examples.json").read_text())
     except (OSError, ValueError):
         return []
-    return [e for e in items if (EXAMPLES / e["file"]).exists()]
+    return [e for e in items if (EXAMPLES / "precomputed" / e["id"] / "result.json").exists()]
 
 
 def _job(job_id: str) -> Dict[str, Any]:
@@ -137,7 +142,7 @@ def _runner() -> None:
             (d / "error.json").write_text(json.dumps({"kind": "internal", "message": "The calibration process ended unexpectedly."}))
         job.update(state="done" if ok else "error", finished=time.time())
         src = d / job["file"]
-        if src.exists() and not job.get("example"):
+        if src.exists():
             src.unlink()                           # keep no uploaded image once the job is over
         _purge()
 
@@ -154,7 +159,7 @@ def _recover() -> None:
         if not (d / "result.json").exists() and not (d / "error.json").exists():
             (d / "error.json").write_text(json.dumps({"kind": "internal", "message": "The server restarted during the job; please submit it again."}))
         _jobs[d.name] = {"state": "done" if (d / "result.json").exists() else "error", "created": (d / "params.json").stat().st_mtime,
-                         "file": params["file"], "max_time": params.get("max_time", 40), "name": params["original_name"], "example": False}
+                         "file": params["file"], "max_time": params.get("max_time", 40), "name": params["original_name"]}
 
 
 _recover()
@@ -171,7 +176,8 @@ def index() -> FileResponse:
 def api_config() -> dict:
     return {"version": __version__, "max_mb": MAX_MB, "max_time": MAX_TIME, "default_time": 40, "ttl_h": TTL / 3600,
             "formats": [s for s in FORMATS if not s.endswith(".gz")],
-            "examples": [{k: e.get(k) for k in ("id", "title", "credit", "lat", "lon", "elev", "utc", "exposure")} for e in _examples()]}
+            "elev_range": ELEV, "fwhm_range": FWHM,
+            "examples": [{k: v for k, v in e.items() if k != "file"} for e in _examples()]}
 
 
 @app.post("/api/exif")
@@ -203,12 +209,12 @@ async def api_exif(image: UploadFile = File(...)) -> dict:
 
 
 @app.post("/api/jobs")
-async def api_submit(request: Request, image: Optional[UploadFile] = File(None), example: Optional[str] = Form(None),
+async def api_submit(request: Request, image: Optional[UploadFile] = File(None),
                      lat: float = Form(...), lon: float = Form(...), elev: float = Form(0.0), utc: str = Form(...),
                      exposure: Optional[float] = Form(None), max_time: float = Form(40.0), parity: str = Form("auto"),
                      fwhm: str = Form("auto")) -> dict:
     _purge()
-    if not (-90 <= lat <= 90 and -180 <= lon <= 360 and -500 <= elev <= 9000):
+    if not (-90 <= lat <= 90 and -180 <= lon <= 360 and ELEV[0] <= elev <= ELEV[1]):
         raise HTTPException(422, "Latitude, longitude or elevation out of range.")
     try:
         t = datetime.fromisoformat(utc.strip().replace("Z", "").replace(" ", "T"))
@@ -220,10 +226,10 @@ async def api_submit(request: Request, image: Optional[UploadFile] = File(None),
         raise HTTPException(422, "parity must be auto, direct or mirror")
     if fwhm != "auto":
         try:
-            if not 1.0 <= float(fwhm) <= 20:
+            if not FWHM[0] <= float(fwhm) <= FWHM[1]:
                 raise ValueError
         except ValueError:
-            raise HTTPException(422, "The kernel FWHM must be 'auto' or a number of pixels between 1 and 20.")
+            raise HTTPException(422, f"The kernel FWHM must be 'auto' or between {FWHM[0]:g} and {FWHM[1]:g} px.")
     max_time = min(max(float(max_time), 10.0), MAX_TIME)
 
     ip = _client_ip(request)
@@ -240,37 +246,30 @@ async def api_submit(request: Request, image: Optional[UploadFile] = File(None),
     job_id = secrets.token_urlsafe(16)
     d = DATA / job_id
     d.mkdir(parents=True)
-    ex = None
-    if example:
-        ex = next((e for e in _examples() if e["id"] == example), None)
-        if ex is None:
-            raise HTTPException(404, "unknown example")
-        name = Path(ex["file"]).name
-        shutil.copy(EXAMPLES / ex["file"], d / ("frame" + _suffix(name)))
-    else:
-        if image is None:
-            raise HTTPException(422, "No image.")
-        name = Path(image.filename or "frame.jpg").name
-        suffix = _suffix(name)
-        if not suffix:
-            shutil.rmtree(d, ignore_errors=True)
-            raise HTTPException(415, "Unsupported format. Use JPEG, PNG, TIFF, FITS or a camera raw file.")
-        size = 0
-        with open(d / ("frame" + suffix), "wb") as fh:
-            while chunk := await image.read(1 << 20):
-                size += len(chunk)
-                if size > MAX_MB * 1e6:
-                    fh.close()
-                    shutil.rmtree(d, ignore_errors=True)
-                    raise HTTPException(413, f"The file is larger than {MAX_MB:.0f} MB.")
-                fh.write(chunk)
+    if image is None:
+        shutil.rmtree(d, ignore_errors=True)
+        raise HTTPException(422, "No image.")
+    name = Path(image.filename or "frame.jpg").name
+    suffix = _suffix(name)
+    if not suffix:
+        shutil.rmtree(d, ignore_errors=True)
+        raise HTTPException(415, "Unsupported format. Use JPEG, PNG, TIFF, FITS or a camera raw file.")
+    size = 0
+    with open(d / ("frame" + suffix), "wb") as fh:
+        while chunk := await image.read(1 << 20):
+            size += len(chunk)
+            if size > MAX_MB * 1e6:
+                fh.close()
+                shutil.rmtree(d, ignore_errors=True)
+                raise HTTPException(413, f"The file is larger than {MAX_MB:.0f} MB.")
+            fh.write(chunk)
     params = {"file": "frame" + _suffix(name), "original_name": name, "lat": lat, "lon": lon, "elev": elev,
               "utc": t.isoformat(), "exposure": exposure, "max_time": max_time, "parity": parity, "fwhm": fwhm}
     (d / "params.json").write_text(json.dumps(params))
     with _lock:
         _rate[ip].append(now)
         _jobs[job_id] = {"state": "queued", "created": now, "file": params["file"], "max_time": max_time,
-                         "name": name, "example": bool(ex)}
+                         "name": name}
         _order.append(job_id)
     _queue.put(job_id)
     return {"id": job_id}
@@ -310,6 +309,17 @@ def api_file(job_id: str, name: str) -> Response:
     if name != "display.jpg" and name != "result.json":
         headers["Content-Disposition"] = f'attachment; filename="{stem}_{name}"'
     return FileResponse(path, media_type=FILES[name], headers=headers)
+
+
+@app.get("/api/examples/{example_id}/{name}")
+def api_example_file(example_id: str, name: str) -> Response:
+    ex = next((e for e in _examples() if e["id"] == example_id), None)
+    if ex is None or name not in EXAMPLE_FILES:
+        raise HTTPException(404, "not available")
+    headers = {"Cache-Control": "public, max-age=86400"}
+    if name not in ("display.jpg", "thumb.jpg", "result.json", "log.txt"):
+        headers["Content-Disposition"] = f'attachment; filename="{example_id}_{name}"'
+    return FileResponse(EXAMPLES / "precomputed" / example_id / name, media_type=EXAMPLE_FILES[name], headers=headers)
 
 
 @app.get("/api/version")

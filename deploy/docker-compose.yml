@@ -16,7 +16,7 @@ services:
       ASCAL_WEB_RATE: "20"
       ASCAL_WEB_TTL_H: "6"
       ASCAL_WEB_MAX_QUEUE: "8"
-      ASCAL_WEB_MAX_TIME: "90"
+      ASCAL_WEB_MAX_TIME: "180"
     volumes:
       - ascal-web-data:/data
     mem_limit: 6g

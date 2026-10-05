@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="96" alt="ascal logo"></p>
+
 # ascal — zero-shot geometric calibration of all-sky cameras
 
 `ascal` calibrates the geometry of a fisheye all-sky camera from **one night image**, with no
@@ -16,7 +18,7 @@ Network, FRIPON), professional site monitors (MMT, ESO Paranal, Liverpool Telesc
 stations of the Allsky network, with images from 0.3 to 77 Mpx, monochrome and colour, JPEG, FITS and camera raw.
 Every one of them is calibrated in less than 40 s on a desktop CPU (median about 10 s).
 
-The method is described in *Automatic astrometric calibration of low-cost all-sky cameras* (manuscript, 2026). On a Raspberry Pi HQ Camera with a 1.55 mm M12 fisheye lens installed
+The method is described in [*Automatic astrometric calibration of low-cost all-sky cameras*](https://arxiv.org/abs/2609.15724) (arXiv:2609.15724; submitted to The Open Journal of Astrophysics). On a Raspberry Pi HQ Camera with a 1.55 mm M12 fisheye lens installed
 by hand (3.7° off the zenith) it reaches a median residual of 0.5–0.6 px (about 2 arcmin) on nights
 it has never seen, with 76–88 % of the stars within one pixel.
 
@@ -241,7 +243,8 @@ ascal web            # http://127.0.0.1:8000
 ```
 
 Drop an image and give the UTC start of the exposure and the site (the time is pre-filled from FITS headers and
-EXIF). The result is shown on a zoomable viewer with layers (matched stars, all detections, catalogue stars and
+EXIF), or open one of the precomputed examples from public archives (ESO, Liverpool Telescope, MMT, the Desert
+Fireball Network and FRIPON data releases on Zenodo). The result is shown on a zoomable viewer with layers (matched stars, all detections, catalogue stars and
 names, alt/az grid, cardinal points, constellations, residual arrows, zenith and optical centre; the altitude and
 azimuth under the cursor), followed by tables of the model, the fit quality per altitude band and the processing, and
 interactive charts (projection curve against the ideal fisheye projections, residuals against altitude and
@@ -289,7 +292,7 @@ If you use this software, please cite the paper (reference to be completed on pu
 repository:
 
 > González Fernández JR, Hermosa Muñoz L, Fernández Alonso M, González Cuesta L. Automatic astrometric
-> calibration of low-cost all-sky cameras. 2026 (submitted to The Open Journal of Astrophysics).
+> calibration of low-cost all-sky cameras. arXiv:2609.15724 (2026), submitted to The Open Journal of Astrophysics.
 > Code: https://github.com/GonzalezFJR/ascal
 
 The camera model follows Kannala & Brandt (2006, IEEE TPAMI 28:1335) for the radial function,

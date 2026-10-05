@@ -20,7 +20,18 @@ ssh host 'cd ~/ascal-web/deploy && docker compose up -d --build'
 Limits are set in `docker-compose.yml` (upload size, jobs per IP and hour, queue length, how long results are kept,
 largest time budget; see the docstring of `ascal/web/app.py`). One job runs at a time, each in its own process; a
 77-Mpx FITS frame needs about 2.6 GB and 65 s on a 4-core machine. Uploaded images are deleted as soon as the job
-ends; results after `ASCAL_WEB_TTL_H` hours. Examples offered on the page are listed in `examples/web/examples.json`.
+ends; results after `ASCAL_WEB_TTL_H` hours.
+
+## Examples
+
+The page offers precomputed examples (no calibration is run when one is opened). They are listed, with their
+metadata and data sources, in `examples/web/examples.json`; their results live in `examples/web/precomputed/<id>/`,
+which is not tracked by git (about 25 MB). Regenerate them before deploying, pointing `--sources` to the directories
+that hold the original images (the ZRO frame is in the repository):
+
+```bash
+python deploy/precompute_examples.py --sources /path/to/images     # --only zro,dfn to redo some; --thumbs-only
+```
 
 ## Tunnel
 
