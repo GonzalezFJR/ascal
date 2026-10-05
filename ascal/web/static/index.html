@@ -34,10 +34,9 @@
       <p>Give the site and the UTC time of a clear night frame. <b>ascal</b> finds the stars, identifies them
         without any prior calibration, mask or manual step, and fits the mapping between pixels and the sky
         (altitude, azimuth): optical centre, focal length, fisheye distortion and tilt of the camera.</p>
-      <p class="paper">Method: <a href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener"><i>Automatic astrometric
-        calibration of low-cost all-sky cameras</i>, arXiv:2609.15724</a>. Submitted to The Open Journal of Astrophysics.</p>
       <p class="muted">Fisheye cameras that see most of the sky, with stars down to magnitude 4–5. JPEG, PNG, TIFF, FITS or
-        camera raw. The image and the results are deleted from the server after <span id="ttl">6</span> h.</p>
+        camera raw. The calibration can fail if too few stars are visible, if there are clouds, or if the dome or lens is
+        dirty or covered with water drops.</p>
       <button type="button" class="examples-toggle" id="examples-toggle" hidden aria-expanded="false" aria-controls="examples">
         <span>No image at hand? <b>Explore <span id="n-examples">8</span> precomputed examples</b> from professional and network cameras</span>
         <span class="chev" aria-hidden="true">▾</span>
@@ -138,6 +137,7 @@
         <h2 id="result-title">Calibration</h2>
         <small id="result-sub"></small>
         <p class="ex-meta" id="ex-meta" hidden></p>
+        <p class="notice" id="expiry-note" hidden></p>
       </div>
       <div class="actions">
         <button type="button" class="ghost" id="new-2">New calibration</button>
@@ -192,12 +192,15 @@
 </main>
 
 <footer>
+  <a class="paper-cite" href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener">
+    <span class="paper-label">Paper</span>
+    <span><b>Automatic astrometric calibration of low-cost all-sky cameras</b><br>
+    J. R. González Fernández, L. Hermosa Muñoz, M. Fernández Alonso, L. González Cuesta · arXiv:2609.15724 (2026).
+    Submitted to The Open Journal of Astrophysics.</span>
+  </a>
   <p><b>ascal</b> is the calibration software of the <a href="https://lumaria.allandestars.com" target="_blank" rel="noopener">Lumaria</a>
-    light-pollution monitoring network (Allande Stars). Method: J. R. González Fernández, L. Hermosa Muñoz, M. Fernández Alonso,
-    L. González Cuesta, <a href="https://arxiv.org/abs/2609.15724" target="_blank" rel="noopener"><i>Automatic astrometric calibration
-    of low-cost all-sky cameras</i></a>, arXiv:2609.15724 (2026). Submitted to The Open Journal of Astrophysics.
-    Star positions from Hipparcos (ESA 1997); constellation figures from d3-celestial (O. Frohn).</p>
-  <p class="muted">Uploaded images are used only to compute the calibration and are deleted after the job; results expire after a few hours.</p>
+    light-pollution monitoring network (Allande Stars). Star positions from Hipparcos (ESA 1997); constellation figures
+    from d3-celestial (O. Frohn).</p>
 </footer>
 </body>
 </html>

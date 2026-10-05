@@ -85,7 +85,6 @@
     try {
       S.cfg = await (await fetch("api/config")).json();
       $("version").textContent = "v" + S.cfg.version;
-      $("ttl").textContent = Math.round(S.cfg.ttl_h);
       $("max-time").max = S.cfg.max_time;
       $("formats").textContent = "JPEG, PNG, TIFF, FITS, camera raw · up to " + Math.round(S.cfg.max_mb) + " MB";
       $("elev").min = S.cfg.elev_range[0]; $("elev").max = S.cfg.elev_range[1];
@@ -258,8 +257,11 @@
       const e = s.example;
       $("result-title").textContent = e ? `${e.title} — ${e.place}` : R.original_name;
       $("result-sub").innerHTML = esc(`${R.frame.utc_mid.replace("T", " ").slice(0, 19)} UTC (mid-exposure) · ${fmt(R.site.lat, 4)}°, ${fmt(R.site.lon, 4)}° · `
-        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px · `) + (e ? "precomputed example" : esc(`result kept for ${fmt(s.expires_in_h, 1)} h`));
+        + `${sm.n_pairs} stars, median ${fmt(sm.median_px)} px`) + (e ? " · precomputed example" : "");
       $("ex-meta").hidden = !e;
+      $("expiry-note").hidden = !!e;
+      if (!e) $("expiry-note").textContent = `Your image has already been deleted from the server. These results will be deleted in `
+        + `${fmt(s.expires_in_h, 1)} h: download what you need with the Export buttons.`;
       if (e) $("ex-meta").innerHTML = `<b>${esc(e.operator)}</b> · ${esc(e.site)} · ${esc(e.camera)}, ${esc(e.lens)} · ${esc(e.format)}, `
         + `${esc(String(e.exposure))} s · ${esc(e.description)} Data: <a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(e.source)}</a> (${esc(e.credit)}).`;
       $("log-final").textContent = (s.log || []).join("\n");
